@@ -58,7 +58,7 @@ Desde el módulo puedes cambiar `full_name` y `role`. Los usuarios se siguen cre
 ## V8 - Módulo de creación de usuarios
 
 Cambios incluidos:
-- Versión visible en pantalla de login y panel lateral: `V8 · Usuarios Fix`.
+- Versión visible en pantalla de login y panel lateral: `V9 · Usuarios Final Fix`.
 - Pantalla de inicio personalizada con `logo-feedback.jpg`.
 - Módulo `Usuarios Fix` visible solo para administradores.
 - Formulario para crear usuarios con rol `administrador` o `usuario`.
