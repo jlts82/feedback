@@ -1892,6 +1892,8 @@
 
             finanzas: () => renderFinanzasView(),
 
+            users: () => renderUsersAdminView(),
+
             designs: () => {
                 return `
                     <div class="space-y-6 fade-in">
@@ -2981,8 +2983,48 @@
                                 <i class="fas fa-sync-alt"></i> Actualizar
                             </button>
                         </div>
-                        <div class="mb-4 rounded-xl bg-blue-50 border border-blue-100 p-4 text-sm text-blue-800">
-                            <strong>Nota:</strong> los usuarios se crean desde Supabase Authentication. Aquí puedes cambiar el nombre y asignar rol <strong>administrador</strong> o <strong>usuario</strong>.
+                        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+                            <div class="xl:col-span-1 bg-slate-50 border border-slate-200 rounded-2xl p-5">
+                                <div class="flex items-center gap-3 mb-4">
+                                    <div class="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center">
+                                        <i class="fas fa-user-plus"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="font-bold text-gray-800">Crear usuario</h3>
+                                        <p class="text-xs text-gray-500">Administrador o usuario general</p>
+                                    </div>
+                                </div>
+                                <form id="create-user-form" class="space-y-3" onsubmit="usersAdmin.create(event)">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Nombre completo</label>
+                                        <input id="create-user-fullname" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="Nombre del usuario" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Correo</label>
+                                        <input id="create-user-email" type="email" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="usuario@correo.com" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Contraseña temporal</label>
+                                        <input id="create-user-password" type="password" minlength="6" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="Mínimo 6 caracteres" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Rol</label>
+                                        <select id="create-user-role" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                                            <option value="usuario">Usuario general</option>
+                                            <option value="administrador">Administrador</option>
+                                        </select>
+                                    </div>
+                                    <button id="create-user-submit" type="submit" class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium">
+                                        <i class="fas fa-user-plus"></i> Crear usuario
+                                    </button>
+                                    <div id="create-user-status" class="hidden text-xs rounded-lg p-3"></div>
+                                </form>
+                            </div>
+                            <div class="xl:col-span-2 rounded-2xl bg-blue-50 border border-blue-100 p-5 text-sm text-blue-800">
+                                <h3 class="font-bold mb-2"><i class="fas fa-info-circle mr-2"></i>Importante</h3>
+                                <p>Para crear usuarios desde la app se usa una <strong>Edge Function</strong> de Supabase llamada <strong>create-user</strong>. Esto evita exponer la llave <strong>service_role</strong> en el navegador.</p>
+                                <p class="mt-2">Si al crear usuario aparece error de función no encontrada, sube la carpeta <strong>supabase/functions/create-user</strong> con Supabase CLI.</p>
+                            </div>
                         </div>
                         <div id="users-admin-status" class="text-sm text-gray-500 py-4">Cargando usuarios...</div>
                         <div class="overflow-x-auto hidden" id="users-admin-table-wrap">
@@ -3071,6 +3113,74 @@
                     </tr>
                 `;
             },
+            async create(event) {
+                if (event) event.preventDefault();
+                if (!window.auth || auth.role !== 'administrador') {
+                    utils.notify('No tienes permiso para crear usuarios', 'error');
+                    return;
+                }
+
+                const fullName = this.safe(document.getElementById('create-user-fullname')?.value || 'Usuario');
+                const email = this.safe(document.getElementById('create-user-email')?.value || '').toLowerCase();
+                const password = document.getElementById('create-user-password')?.value || '';
+                const role = document.getElementById('create-user-role')?.value === 'administrador' ? 'administrador' : 'usuario';
+                const btn = document.getElementById('create-user-submit');
+                const statusBox = document.getElementById('create-user-status');
+
+                if (!fullName || !email || password.length < 6) {
+                    this.showCreateStatus('Captura nombre, correo y una contraseña temporal de mínimo 6 caracteres.', 'error');
+                    return;
+                }
+
+                const { data: sessionData } = await supabaseClient.auth.getSession();
+                const token = sessionData?.session?.access_token;
+                if (!token) {
+                    this.showCreateStatus('Tu sesión expiró. Cierra sesión e inicia de nuevo.', 'error');
+                    return;
+                }
+
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creando...';
+                }
+
+                try {
+                    const response = await fetch(`${SUPABASE_URL}/functions/v1/create-user`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ email, password, full_name: fullName, role })
+                    });
+                    const result = await response.json().catch(() => ({}));
+                    if (!response.ok) {
+                        throw new Error(result.error || 'No se pudo crear el usuario.');
+                    }
+                    this.showCreateStatus('Usuario creado correctamente.', 'success');
+                    document.getElementById('create-user-form')?.reset();
+                    await this.load();
+                    utils.notify('Usuario creado correctamente');
+                } catch (error) {
+                    this.showCreateStatus(error.message || 'Error al crear usuario.', 'error');
+                    utils.notify(error.message || 'Error al crear usuario', 'error');
+                } finally {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-user-plus"></i> Crear usuario';
+                    }
+                }
+            },
+            showCreateStatus(message, type = 'success') {
+                const box = document.getElementById('create-user-status');
+                if (!box) return;
+                box.textContent = this.safe(message);
+                box.className = type === 'error'
+                    ? 'text-xs rounded-lg p-3 bg-red-50 border border-red-100 text-red-700'
+                    : 'text-xs rounded-lg p-3 bg-emerald-50 border border-emerald-100 text-emerald-700';
+                box.classList.remove('hidden');
+            },
+
             async save(id) {
                 const nameEl = document.getElementById(`user-name-${id}`);
                 const roleEl = document.getElementById(`user-role-${id}`);
@@ -3097,6 +3207,9 @@
                 }
             }
         };
+
+
+        // Exponer módulo de usuarios al navegador para botones inline.
         window.usersAdmin = usersAdmin;
 
         function renderFinanzasView() {
@@ -3498,7 +3611,31 @@
 
                 // Render view
                 const content = document.getElementById('content');
-                content.innerHTML = views[route] ? views[route]() : views.dashboard();
+                let viewHtml = '';
+                try {
+                    if (route === 'users') {
+                        // Render explícito para evitar que el módulo de usuarios se quede mostrando Dashboard.
+                        viewHtml = renderUsersAdminView();
+                    } else if (views[route]) {
+                        viewHtml = views[route]();
+                    } else {
+                        viewHtml = views.dashboard();
+                    }
+                } catch (error) {
+                    console.error('Error renderizando ruta:', route, error);
+                    viewHtml = `
+                        <div class="bg-white rounded-2xl shadow-sm border border-red-200 p-6 text-red-700">
+                            <h2 class="text-xl font-bold mb-2"><i class="fas fa-triangle-exclamation mr-2"></i>Error al cargar módulo</h2>
+                            <p class="text-sm">No se pudo cargar el módulo <strong>${route}</strong>. Revisa la consola del navegador.</p>
+                        </div>
+                    `;
+                }
+                content.innerHTML = viewHtml;
+
+                // Cargar datos del módulo Usuarios después de inyectar el HTML.
+                if (route === 'users' && window.usersAdmin) {
+                    setTimeout(() => window.usersAdmin.load(), 0);
+                }
                 
                 // Restaurar tab de inventario si es necesario
                 if (route === 'inventory') {
@@ -3514,6 +3651,60 @@
                 router.navigate(router.currentRoute);
             }
         };
+        window.router = router;
+
+
+        // Apertura robusta del módulo Usuarios.
+        // Se usa desde el botón del sidebar para evitar problemas de caché/router en Vercel.
+        window.openUsersAdminModule = function() {
+            try {
+                if (window.auth && auth.role !== 'administrador') {
+                    utils.notify('No tienes permiso para acceder a este módulo', 'error');
+                    return;
+                }
+
+                router.currentRoute = 'users';
+
+                document.querySelectorAll('.nav-btn').forEach(btn => {
+                    if (btn.dataset.route === 'users') {
+                        btn.classList.add('bg-slate-800', 'text-white');
+                        btn.classList.remove('hover:bg-slate-800');
+                    } else {
+                        btn.classList.remove('bg-slate-800', 'text-white');
+                        btn.classList.add('hover:bg-slate-800');
+                    }
+                });
+
+                const title = document.getElementById('page-title');
+                if (title) title.textContent = 'Administración de usuarios';
+
+                const content = document.getElementById('content');
+                if (!content) return;
+
+                content.innerHTML = renderUsersAdminView();
+                setTimeout(() => {
+                    if (window.usersAdmin) window.usersAdmin.load();
+                }, 50);
+
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) sidebar.classList.remove('open');
+            } catch (error) {
+                console.error('Error abriendo módulo Usuarios:', error);
+                const content = document.getElementById('content');
+                if (content) {
+                    content.innerHTML = `
+                        <div class="bg-white rounded-2xl shadow-sm border border-red-200 p-6 text-red-700">
+                            <h2 class="text-xl font-bold mb-2"><i class="fas fa-triangle-exclamation mr-2"></i>Error al cargar Usuarios</h2>
+                            <p class="text-sm">${error.message || 'Error desconocido'}</p>
+                        </div>
+                    `;
+                }
+            }
+        };
+
+        // Alias estable: algunas versiones del index llamaban openUserAdminModule y otras openUsersAdminModule.
+        // Dejamos ambos nombres para evitar errores por caché o por archivos mezclados en Vercel.
+        window.openUserAdminModule = window.openUsersAdminModule;
 
         // Modal Functions
         function openModal() {
@@ -4601,6 +4792,8 @@
             }
         };
         security.bindSanitizedInputs();
+
+
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
