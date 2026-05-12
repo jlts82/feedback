@@ -50,17 +50,17 @@ El correo del usuario está en `auth.users`, no en `public.profiles`. El fronten
 
 ## V3 - Administración de usuarios
 
-Se agregó el módulo **Usuarios**, visible solo para administradores. Ejecuta nuevamente `supabase_setup.sql` en Supabase para crear las funciones RPC `admin_list_users` y `admin_update_user_profile`.
+Se agregó el módulo **Usuarios Fix**, visible solo para administradores. Ejecuta nuevamente `supabase_setup.sql` en Supabase para crear las funciones RPC `admin_list_users` y `admin_update_user_profile`.
 
 Desde el módulo puedes cambiar `full_name` y `role`. Los usuarios se siguen creando desde Supabase Authentication.
 
 
-## V4 - Módulo de creación de usuarios
+## V5 - Módulo de creación de usuarios
 
 Cambios incluidos:
-- Versión visible en pantalla de login y panel lateral: `V4 · Usuarios`.
+- Versión visible en pantalla de login y panel lateral: `V5 · Usuarios Fix`.
 - Pantalla de inicio personalizada con `logo-feedback.jpg`.
-- Módulo `Usuarios` visible solo para administradores.
+- Módulo `Usuarios Fix` visible solo para administradores.
 - Formulario para crear usuarios con rol `administrador` o `usuario`.
 
 ### Importante sobre creación de usuarios
