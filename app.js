@@ -595,6 +595,244 @@
             }
         };
 
+
+
+        // ============================================================
+        // V11: Capa Supabase para módulos productivos
+        // ============================================================
+        const supabaseData = {
+            enabled: false,
+
+            toProduct(row) {
+                return {
+                    id: row.id,
+                    name: row.name || '',
+                    sku: row.sku || '',
+                    description: row.description || '',
+                    category: row.category || '',
+                    subcategory: row.subcategory || '',
+                    type: 'product',
+                    stock: Number(row.stock || 0),
+                    minStock: Number(row.min_stock || 0),
+                    unit: row.unit || 'pieza',
+                    cost: Number(row.cost || 0),
+                    salePrice: Number(row.sale_price || 0),
+                    supplier: row.supplier || '',
+                    location: row.location || '',
+                    createdAt: row.created_at,
+                    updatedAt: row.updated_at
+                };
+            },
+
+            toClient(row) {
+                return {
+                    id: row.id,
+                    name: row.name || row.full_name || 'Cliente',
+                    phone: row.phone || '',
+                    email: row.email || '',
+                    type: row.type || 'regular',
+                    discount: Number(row.discount || 0),
+                    address: row.address || '',
+                    rfc: row.rfc || '',
+                    createdAt: row.created_at,
+                    updatedAt: row.updated_at
+                };
+            },
+
+            toOrder(row) {
+                return {
+                    id: row.id,
+                    clientId: row.client_id,
+                    clientName: row.client_name || '',
+                    clientPhone: row.client_phone || '',
+                    status: row.status || 'recibido',
+                    deliveryType: row.delivery_type || 'local',
+                    deliveryAddress: row.delivery_address || '',
+                    partialDelivery: !!row.partial_delivery,
+                    items: Array.isArray(row.items) ? row.items : [],
+                    description: row.description || '',
+                    total: Number(row.total || 0),
+                    stockProcessed: !!row.stock_processed,
+                    financeProcessed: !!row.finance_processed,
+                    createdAt: row.created_at,
+                    updatedAt: row.updated_at
+                };
+            },
+
+            toFinance(row) {
+                return {
+                    id: row.id,
+                    tipo: row.type === 'income' ? 'venta' : (row.category === 'insumos' ? 'gasto_insumo' : 'gasto_operativo'),
+                    concepto: row.concept || '',
+                    categoria: row.category || '',
+                    pedidoId: row.order_id || '',
+                    monto: Number(row.amount || 0),
+                    notas: row.notes || '',
+                    fecha: row.created_at || new Date().toISOString(),
+                    createdAt: row.created_at
+                };
+            },
+
+            orderToDb(order) {
+                return {
+                    id: order.id,
+                    client_id: order.clientId,
+                    client_name: order.clientName,
+                    client_phone: order.clientPhone || '',
+                    status: order.status,
+                    delivery_type: order.deliveryType || 'local',
+                    delivery_address: order.deliveryAddress || '',
+                    partial_delivery: !!order.partialDelivery,
+                    items: order.items || [],
+                    description: order.description || '',
+                    total: Number(order.total || 0),
+                    stock_processed: !!order.stockProcessed,
+                    finance_processed: !!order.financeProcessed,
+                    created_at: order.createdAt || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+            },
+
+            async loadAll() {
+                if (!window.supabaseClient) return;
+                this.enabled = true;
+                try {
+                    const [clientsRes, productsRes, ordersRes, financeRes] = await Promise.all([
+                        supabaseClient.from('clients').select('*').order('name', { ascending: true }),
+                        supabaseClient.from('products').select('*').order('name', { ascending: true }),
+                        supabaseClient.from('orders').select('*').order('created_at', { ascending: false }),
+                        supabaseClient.from('finance_movements').select('*').order('created_at', { ascending: false })
+                    ]);
+
+                    if (!clientsRes.error && Array.isArray(clientsRes.data)) store.clients = clientsRes.data.map(r => this.toClient(r));
+                    if (!productsRes.error && Array.isArray(productsRes.data)) store.products = productsRes.data.map(r => this.toProduct(r));
+                    if (!ordersRes.error && Array.isArray(ordersRes.data)) store.orders = ordersRes.data.map(r => this.toOrder(r));
+                    if (!financeRes.error && Array.isArray(financeRes.data)) store.finanzas = financeRes.data.map(r => this.toFinance(r));
+
+                    utils.saveStore();
+                } catch (error) {
+                    console.warn('V11 Supabase loadAll fallback localStorage:', error.message);
+                    this.enabled = false;
+                }
+            },
+
+            async saveOrder(order) {
+                const idx = store.orders.findIndex(o => o.id === order.id);
+                if (idx >= 0) store.orders[idx] = order; else store.orders.push(order);
+
+                if (!this.enabled || !window.supabaseClient) {
+                    utils.saveStore();
+                    console.warn('V12: Supabase no disponible, pedido guardado temporalmente en localStorage:', order.id);
+                    return order;
+                }
+
+                const payload = this.orderToDb(order);
+                const { data, error } = await supabaseClient
+                    .from('orders')
+                    .upsert(payload, { onConflict: 'id' })
+                    .select('id,status,total,stock_processed,finance_processed')
+                    .single();
+
+                if (error) {
+                    console.error('V12 error guardando pedido en Supabase:', error, payload);
+                    throw error;
+                }
+
+                console.info('V12 pedido guardado en Supabase:', data);
+                utils.saveStore();
+                return order;
+            },
+
+            async updateOrder(order, previousStatus = null) {
+                if (order.status === 'entregado' && previousStatus !== 'entregado') {
+                    await this.processDeliveredOrder(order);
+                }
+                if (this.enabled && window.supabaseClient) {
+                    const { error } = await supabaseClient.from('orders').upsert(this.orderToDb(order), { onConflict: 'id' });
+                    if (error) throw error;
+                }
+                utils.saveStore();
+            },
+
+            async processDeliveredOrder(order) {
+                if (order.stockProcessed && order.financeProcessed) return;
+
+                if (this.enabled && window.supabaseClient) {
+                    // V12: flujo productivo en Supabase con RPC atómico.
+                    // La función inserta/actualiza el pedido, descuenta stock, registra movimiento de inventario
+                    // y crea el ingreso financiero en una sola operación protegida contra duplicados.
+                    const { data, error } = await supabaseClient.rpc('process_order_delivery', {
+                        p_order: this.orderToDb(order)
+                    });
+
+                    if (error) {
+                        console.error('V12 error procesando entrega en Supabase:', error, order);
+                        throw error;
+                    }
+
+                    const result = Array.isArray(data) ? data[0] : data;
+                    order.stockProcessed = true;
+                    order.financeProcessed = true;
+
+                    // Refrescar productos afectados desde Supabase para reflejar stock real.
+                    const ids = (order.items || [])
+                        .map(item => item.productId)
+                        .filter(id => id && id !== 'custom');
+
+                    if (ids.length) {
+                        const { data: updatedProducts, error: productsError } = await supabaseClient
+                            .from('products')
+                            .select('*')
+                            .in('id', ids);
+                        if (!productsError && Array.isArray(updatedProducts)) {
+                            updatedProducts.forEach(row => {
+                                const idx = store.products.findIndex(p => p.id === row.id);
+                                if (idx >= 0) store.products[idx] = this.toProduct(row);
+                            });
+                        }
+                    }
+
+                    utils.notify(`Entrega procesada: stock descontado e ingreso registrado (${utils.formatCurrency(Number(order.total || 0))})`, 'success');
+                    console.info('V12 entrega procesada:', result);
+                    return;
+                }
+
+                // Fallback local solo para demo sin Supabase.
+                const stockMessages = [];
+                if (!order.stockProcessed) {
+                    for (const item of (order.items || [])) {
+                        if (!item.productId || item.productId === 'custom') continue;
+                        const product = store.products.find(p => p.id === item.productId);
+                        if (!product) continue;
+                        const qty = Number(item.quantity || 0);
+                        if (qty <= 0) continue;
+                        if (Number(product.stock || 0) < qty) throw new Error(`Stock insuficiente para ${product.name}. Disponible: ${product.stock}`);
+                        product.stock = Number(product.stock || 0) - qty;
+                        stockMessages.push(`${product.name}: -${qty} ${product.unit || ''}`);
+                    }
+                    order.stockProcessed = true;
+                }
+
+                if (!order.financeProcessed) {
+                    store.finanzas.push({
+                        id: utils.generateId(),
+                        tipo: 'venta',
+                        concepto: `Venta pedido ${order.id}`,
+                        categoria: 'pedido',
+                        pedidoId: order.id,
+                        monto: Number(order.total || 0),
+                        notas: `Ingreso automático por pedido entregado de ${order.clientName || 'cliente'}`,
+                        fecha: new Date().toISOString()
+                    });
+                    order.financeProcessed = true;
+                }
+
+                if (stockMessages.length) utils.notify(`Stock descontado: ${stockMessages.join(', ')}`, 'success');
+                if (order.financeProcessed) utils.notify('Ingreso registrado en Finanzas', 'success');
+            }
+        };
+        window.supabaseData = supabaseData;
+
         // Views
         const views = {
             dashboard: () => {
@@ -3557,17 +3795,24 @@
                 ev.preventDefault();
             },
             
-            drop: (ev, newStatus) => {
+            drop: async (ev, newStatus) => {
                 ev.preventDefault();
                 const orderId = ev.dataTransfer.getData("orderId");
                 const order = store.orders.find(o => o.id === orderId);
                 
                 if (order && order.status !== newStatus) {
+                    const previousStatus = order.status;
                     order.status = newStatus;
                     order.updatedAt = new Date().toISOString();
-                    utils.saveStore();
-                    utils.notify(`Pedido movido a: ${newStatus.charAt(0).toUpperCase() + newStatus.slice(1)}`);
-                    router.refresh();
+                    try {
+                        await supabaseData.updateOrder(order, previousStatus);
+                        utils.notify(`Pedido movido a: ${newStatus.charAt(0).toUpperCase() + newStatus.slice(1)}`);
+                        await supabaseData.loadAll();
+                        router.refresh();
+                    } catch (error) {
+                        order.status = previousStatus;
+                        utils.notify('No se pudo mover el pedido: ' + error.message, 'error');
+                    }
                 }
                 
                 document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
@@ -3965,7 +4210,7 @@
             }
         }
 
-        function handleOrderSubmit(e) {
+        async function handleOrderSubmit(e) {
             e.preventDefault();
             
             const clientSelect = document.getElementById('orderClient');
@@ -4060,24 +4305,15 @@
                 updatedAt: new Date().toISOString()
             };
 
-            let stockMessage = [];
-            stockUpdates.forEach(update => {
-                update.product.stock -= update.qty;
-                stockMessage.push(`${update.product.name}: -${update.qty} ${update.product.unit}`);
-            });
-
-            store.orders.push(order);
-            utils.saveStore();
-            
-            utils.notify(`Pedido creado exitosamente`, 'success');
-            if (stockMessage.length > 0) {
-                setTimeout(() => {
-                    utils.notify(`Stock actualizado: ${stockMessage.join(', ')}`, 'success');
-                }, 500);
+            try {
+                await supabaseData.saveOrder(order);
+                utils.notify('Pedido creado exitosamente', 'success');
+                closeModal();
+                await supabaseData.loadAll();
+                router.refresh();
+            } catch (error) {
+                utils.notify('No se pudo guardar el pedido: ' + error.message, 'error');
             }
-            
-            closeModal();
-            router.refresh();
         }
 
         function showQuickQuote() {
@@ -4407,10 +4643,11 @@
             if (inp) inp.value = total;
         }
 
-        function handleOrderUpdate(e, orderId) {
+        async function handleOrderUpdate(e, orderId) {
             e.preventDefault();
             const order = store.orders.find(o => o.id === orderId);
             if (!order) return;
+            const previousStatus = order.status;
 
             const items = [];
             document.querySelectorAll('.edit-order-item').forEach(item => {
@@ -4451,10 +4688,15 @@
             order.total = parseFloat(document.getElementById('editOrderTotalInput').value) || 0;
             order.updatedAt = new Date().toISOString();
 
-            utils.saveStore();
-            utils.notify('Pedido actualizado correctamente', 'success');
-            closeModal();
-            router.refresh();
+            try {
+                await supabaseData.updateOrder(order, previousStatus);
+                utils.notify('Pedido actualizado correctamente', 'success');
+                closeModal();
+                await supabaseData.loadAll();
+                router.refresh();
+            } catch (error) {
+                utils.notify('No se pudo actualizar el pedido: ' + error.message, 'error');
+            }
         }
 
         function handleClientUpdate(e, clientId) {
@@ -4799,6 +5041,7 @@
         document.addEventListener('DOMContentLoaded', async () => {
             await auth.init();
             security.sanitizeStore(store);
+            await supabaseData.loadAll();
             auth.applyRoleUI();
             router.navigate('dashboard');
             
