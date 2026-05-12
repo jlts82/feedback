@@ -217,3 +217,79 @@ grant execute on function public.admin_update_user_profile(uuid, text, text) to 
 
 -- Verificación rápida:
 -- select * from public.admin_list_users();
+
+-- =========================================================
+-- V11: Módulos productivos conectados a Supabase
+-- Pedidos + stock + finanzas automáticas
+-- =========================================================
+
+-- Control para evitar duplicar descuentos/ingresos.
+alter table public.orders
+add column if not exists stock_processed boolean not null default false,
+add column if not exists finance_processed boolean not null default false;
+
+-- Tabla de movimientos financieros.
+create table if not exists public.finance_movements (
+  id uuid primary key default gen_random_uuid(),
+  type text not null check (type in ('income', 'expense')),
+  concept text not null,
+  category text,
+  order_id text,
+  amount numeric not null default 0,
+  notes text,
+  created_at timestamp with time zone default now()
+);
+
+alter table public.finance_movements enable row level security;
+
+-- Políticas simples para operar desde frontend con usuarios autenticados.
+-- En una etapa posterior se pueden endurecer por rol.
+drop policy if exists finance_movements_select_authenticated on public.finance_movements;
+create policy finance_movements_select_authenticated
+on public.finance_movements for select
+to authenticated
+using (true);
+
+drop policy if exists finance_movements_insert_authenticated on public.finance_movements;
+create policy finance_movements_insert_authenticated
+on public.finance_movements for insert
+to authenticated
+with check (true);
+
+drop policy if exists finance_movements_update_admin on public.finance_movements;
+create policy finance_movements_update_admin
+on public.finance_movements for update
+to authenticated
+using (public.is_current_user_admin())
+with check (public.is_current_user_admin());
+
+drop policy if exists finance_movements_delete_admin on public.finance_movements;
+create policy finance_movements_delete_admin
+on public.finance_movements for delete
+to authenticated
+using (public.is_current_user_admin());
+
+-- Si RLS está activo en estas tablas, permitir operación a usuarios autenticados.
+alter table public.clients enable row level security;
+alter table public.products enable row level security;
+alter table public.orders enable row level security;
+alter table public.inventory_movements enable row level security;
+
+drop policy if exists clients_all_authenticated on public.clients;
+create policy clients_all_authenticated on public.clients
+for all to authenticated using (true) with check (true);
+
+drop policy if exists products_all_authenticated on public.products;
+create policy products_all_authenticated on public.products
+for all to authenticated using (true) with check (true);
+
+drop policy if exists orders_all_authenticated on public.orders;
+create policy orders_all_authenticated on public.orders
+for all to authenticated using (true) with check (true);
+
+drop policy if exists inventory_movements_all_authenticated on public.inventory_movements;
+create policy inventory_movements_all_authenticated on public.inventory_movements
+for all to authenticated using (true) with check (true);
+
+-- Verificación rápida.
+select 'V11 listo' as status;
