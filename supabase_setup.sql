@@ -113,3 +113,107 @@ order by u.created_at desc;
 -- update public.profiles
 -- set role = 'usuario'
 -- where id = (select id from auth.users where email = 'TU_CORREO@DOMINIO.COM');
+
+
+-- =========================================================
+-- 9) Administración de usuarios desde el frontend
+-- Estas funciones permiten que SOLO administradores consulten usuarios
+-- y actualicen full_name / role sin exponer service_role en el navegador.
+-- =========================================================
+
+create or replace function public.is_current_user_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where id = auth.uid()
+      and role = 'administrador'
+  );
+$$;
+
+grant execute on function public.is_current_user_admin() to authenticated;
+
+create or replace function public.admin_list_users()
+returns table (
+  id uuid,
+  email text,
+  full_name text,
+  role text,
+  created_at timestamptz,
+  updated_at timestamptz,
+  last_sign_in_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+begin
+  if not public.is_current_user_admin() then
+    raise exception 'No autorizado';
+  end if;
+
+  return query
+  select
+    u.id,
+    u.email::text,
+    p.full_name,
+    p.role,
+    p.created_at,
+    p.updated_at,
+    u.last_sign_in_at
+  from auth.users u
+  left join public.profiles p on p.id = u.id
+  order by u.created_at desc;
+end;
+$$;
+
+grant execute on function public.admin_list_users() to authenticated;
+
+create or replace function public.admin_update_user_profile(
+  p_target_id uuid,
+  p_full_name text,
+  p_role text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_role text;
+begin
+  if not public.is_current_user_admin() then
+    raise exception 'No autorizado';
+  end if;
+
+  if p_role not in ('administrador', 'usuario') then
+    raise exception 'Rol inválido';
+  end if;
+
+  select role into current_role
+  from public.profiles
+  where id = auth.uid();
+
+  -- Evita que un administrador se quite a sí mismo el rol por accidente desde la pantalla actual.
+  if p_target_id = auth.uid() and p_role <> current_role then
+    raise exception 'No puedes cambiar tu propio rol desde esta pantalla';
+  end if;
+
+  insert into public.profiles (id, full_name, role)
+  values (p_target_id, nullif(trim(p_full_name), ''), p_role)
+  on conflict (id) do update
+  set
+    full_name = excluded.full_name,
+    role = excluded.role,
+    updated_at = now();
+end;
+$$;
+
+grant execute on function public.admin_update_user_profile(uuid, text, text) to authenticated;
+
+-- Verificación rápida:
+-- select * from public.admin_list_users();

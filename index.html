@@ -35,7 +35,7 @@
 <p class="hidden text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg p-3" id="login-error"></p>
 </form>
 <div class="mt-5 text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
-      Rol administrador: acceso completo. Rol usuario: sin módulo Finanzas.
+      Rol administrador: acceso completo. Rol usuario: sin módulo Finanzas ni Administración de usuarios.
     </div>
 </div>
 </div>
@@ -66,6 +66,9 @@
             </button>
 <button class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-colors text-left admin-only" data-route="finanzas" id="nav-finanzas" onclick="router.navigate('finanzas')">
 <i class="fas fa-coins w-5"></i> Finanzas
+            </button>
+<button class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-colors text-left admin-only" data-route="users" id="nav-users" onclick="router.navigate('users')">
+<i class="fas fa-user-shield w-5"></i> Usuarios
             </button>
 <button class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-colors text-left" data-route="designs" onclick="router.navigate('designs')">
 <i class="fas fa-palette w-5"></i> Biblioteca Diseños

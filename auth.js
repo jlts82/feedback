@@ -136,7 +136,7 @@ const auth = {
   },
 
   canAccessRoute(route) {
-    if (route === 'finanzas' && this.role !== 'administrador') return false;
+    if (['finanzas', 'users'].includes(route) && this.role !== 'administrador') return false;
     return true;
   },
 

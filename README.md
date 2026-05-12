@@ -46,3 +46,10 @@ where id = (
 ## Nota importante
 
 El correo del usuario está en `auth.users`, no en `public.profiles`. El frontend toma el correo desde la sesión de Supabase y usa `profiles` solo para `full_name` y `role`.
+
+
+## V3 - Administración de usuarios
+
+Se agregó el módulo **Usuarios**, visible solo para administradores. Ejecuta nuevamente `supabase_setup.sql` en Supabase para crear las funciones RPC `admin_list_users` y `admin_update_user_profile`.
+
+Desde el módulo puedes cambiar `full_name` y `role`. Los usuarios se siguen creando desde Supabase Authentication.

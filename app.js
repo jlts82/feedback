@@ -2966,6 +2966,139 @@
         // ============================================================
         // MÓDULO DE FINANZAS — vista standalone (evita backtick anidado)
         // ============================================================
+
+        function renderUsersAdminView() {
+            setTimeout(() => usersAdmin.load(), 0);
+            return `
+                <div class="space-y-6 fade-in">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+                            <div>
+                                <h2 class="text-xl font-bold text-gray-800">Administración de usuarios</h2>
+                                <p class="text-sm text-gray-500 mt-1">Administra nombres y roles. Solo los administradores pueden ver este módulo.</p>
+                            </div>
+                            <button onclick="usersAdmin.load()" class="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium">
+                                <i class="fas fa-sync-alt"></i> Actualizar
+                            </button>
+                        </div>
+                        <div class="mb-4 rounded-xl bg-blue-50 border border-blue-100 p-4 text-sm text-blue-800">
+                            <strong>Nota:</strong> los usuarios se crean desde Supabase Authentication. Aquí puedes cambiar el nombre y asignar rol <strong>administrador</strong> o <strong>usuario</strong>.
+                        </div>
+                        <div id="users-admin-status" class="text-sm text-gray-500 py-4">Cargando usuarios...</div>
+                        <div class="overflow-x-auto hidden" id="users-admin-table-wrap">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-50 border-b border-gray-200">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left font-semibold text-gray-600">Correo</th>
+                                        <th class="px-4 py-3 text-left font-semibold text-gray-600">Nombre</th>
+                                        <th class="px-4 py-3 text-left font-semibold text-gray-600">Rol</th>
+                                        <th class="px-4 py-3 text-left font-semibold text-gray-600">Último acceso</th>
+                                        <th class="px-4 py-3 text-center font-semibold text-gray-600">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-admin-tbody" class="divide-y divide-gray-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        const usersAdmin = {
+            users: [],
+            safe(value) {
+                if (window.security && typeof security.cleanText === 'function') return security.cleanText(value);
+                return String(value || '').replace(/[<>&"']/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[ch])).trim();
+            },
+            async load() {
+                const status = document.getElementById('users-admin-status');
+                const wrap = document.getElementById('users-admin-table-wrap');
+                const tbody = document.getElementById('users-admin-tbody');
+                if (!status || !tbody) return;
+
+                if (!window.auth || auth.role !== 'administrador') {
+                    status.textContent = 'No tienes permiso para ver este módulo.';
+                    status.className = 'text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg p-4';
+                    wrap?.classList.add('hidden');
+                    return;
+                }
+
+                status.textContent = 'Cargando usuarios...';
+                status.className = 'text-sm text-gray-500 py-4';
+                wrap?.classList.add('hidden');
+
+                const { data, error } = await supabaseClient.rpc('admin_list_users');
+                if (error) {
+                    status.textContent = 'No se pudieron cargar usuarios: ' + error.message;
+                    status.className = 'text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg p-4';
+                    return;
+                }
+
+                this.users = Array.isArray(data) ? data : [];
+                tbody.innerHTML = this.users.map(user => this.renderRow(user)).join('');
+                status.textContent = this.users.length ? `${this.users.length} usuario(s) encontrado(s).` : 'No hay usuarios registrados.';
+                status.className = 'text-sm text-gray-500 mb-3';
+                if (this.users.length) wrap?.classList.remove('hidden');
+            },
+            renderRow(user) {
+                const id = this.safe(user.id);
+                const email = this.safe(user.email || 'Sin correo');
+                const fullName = this.safe(user.full_name || '');
+                const role = ['administrador', 'usuario'].includes(user.role) ? user.role : 'usuario';
+                const lastAccess = user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString('es-MX') : 'Sin acceso registrado';
+                const isCurrent = window.auth?.user?.id === user.id;
+                return `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3">
+                            <div class="font-medium text-gray-800">${email}</div>
+                            ${isCurrent ? '<div class="text-xs text-indigo-600 mt-1">Tu sesión actual</div>' : ''}
+                        </td>
+                        <td class="px-4 py-3">
+                            <input id="user-name-${id}" value="${fullName}" class="w-full min-w-[180px] px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="Nombre completo">
+                        </td>
+                        <td class="px-4 py-3">
+                            <select id="user-role-${id}" class="w-full min-w-[150px] px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" ${isCurrent ? 'title="No cambies tu propio rol desde tu sesión actual"' : ''}>
+                                <option value="usuario" ${role === 'usuario' ? 'selected' : ''}>Usuario general</option>
+                                <option value="administrador" ${role === 'administrador' ? 'selected' : ''}>Administrador</option>
+                            </select>
+                        </td>
+                        <td class="px-4 py-3 text-gray-500 whitespace-nowrap">${this.safe(lastAccess)}</td>
+                        <td class="px-4 py-3 text-center">
+                            <button onclick="usersAdmin.save('${id}')" class="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm">
+                                <i class="fas fa-save"></i> Guardar
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            },
+            async save(id) {
+                const nameEl = document.getElementById(`user-name-${id}`);
+                const roleEl = document.getElementById(`user-role-${id}`);
+                const fullName = this.safe(nameEl?.value || 'Usuario');
+                const role = roleEl?.value === 'administrador' ? 'administrador' : 'usuario';
+
+                const { error } = await supabaseClient.rpc('admin_update_user_profile', {
+                    p_target_id: id,
+                    p_full_name: fullName,
+                    p_role: role
+                });
+
+                if (error) {
+                    utils.notify('No se pudo actualizar usuario: ' + error.message, 'error');
+                    return;
+                }
+
+                utils.notify('Usuario actualizado correctamente');
+                await this.load();
+
+                if (window.auth?.user?.id === id) {
+                    await auth.loadProfile();
+                    auth.applyRoleUI();
+                }
+            }
+        };
+        window.usersAdmin = usersAdmin;
+
         function renderFinanzasView() {
             const now = new Date();
             const mesActual = now.getMonth();
@@ -3358,6 +3491,7 @@
                     inventory: 'Inventario',
                     clients: 'Clientes',
                     finanzas: 'Finanzas',
+                    users: 'Administración de usuarios',
                     designs: 'Biblioteca de Diseños'
                 };
                 document.getElementById('page-title').textContent = titles[route];
