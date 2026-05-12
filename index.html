@@ -17,7 +17,7 @@
 <img src="logo-feedback.jpg" alt="FeedBack Personalizados" class="mx-auto w-56 max-w-full rounded-xl mb-4 bg-white">
 <h1 class="text-2xl font-bold text-gray-900">Acceso al sistema</h1>
 <p class="text-gray-500 text-sm mt-1">FeedBack Personalizados</p>
-<p class="inline-flex items-center gap-2 mt-3 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold">Versión V6 · Usuarios Direct</p>
+<p class="inline-flex items-center gap-2 mt-3 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold">Versión V7 · Usuarios Router</p>
 </div>
 <form class="space-y-4" id="login-form">
 <div>
@@ -66,7 +66,7 @@
 <button class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-colors text-left admin-only" data-route="finanzas" id="nav-finanzas" onclick="router.navigate('finanzas')">
 <i class="fas fa-coins w-5"></i> Finanzas
             </button>
-<button class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-colors text-left admin-only" data-route="users" id="nav-users" onclick="showUsersAdminViewDirect(event)">
+<button class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-colors text-left admin-only" data-route="users" id="nav-users" onclick="router.navigate('users')">
 <i class="fas fa-user-shield w-5"></i> Usuarios
             </button>
 <button class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-colors text-left" data-route="designs" onclick="router.navigate('designs')">
@@ -77,7 +77,7 @@
 <div class="text-slate-400 text-xs">Sesión</div>
 <div class="font-semibold truncate" id="current-user-name">Usuario</div>
 <div class="text-indigo-300 text-xs" id="current-user-role">rol</div>
-<div class="text-slate-400 text-[11px] mt-1">Versión V6 · Usuarios Direct</div>
+<div class="text-slate-400 text-[11px] mt-1">Versión V7 · Usuarios Router</div>
 </div>
 <button class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors text-sm" onclick="auth.logout()">
 <i class="fas fa-sign-out-alt"></i> Cerrar sesión
