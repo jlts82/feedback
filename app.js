@@ -1521,9 +1521,9 @@
                             <p class="font-medium text-gray-800 text-sm">${item.name}</p>
                             <p class="text-xs text-red-600">Stock: ${item.stock} ${item.unit} (Min: ${item.minStock})</p>
                         </div>
-                        <button onclick="views.adjustStock('${item.id}', '${type}', 10)" 
+                        <button onclick="views.openStockMovement('${item.id}', '${type}', 'in')" 
                             class="px-3 py-1 ${btnColor} text-white rounded text-sm transition-colors">
-                            +10
+                            Ajustar
                         </button>
                     </div>
                 `;
@@ -1558,11 +1558,11 @@
                             <td class="px-6 py-4 text-gray-600">${utils.formatCurrency(item.cost)}</td>
                             <td class="px-6 py-4">
                                 <div class="flex gap-2">
-                                    <button onclick="views.adjustStock('${item.id}', 'supply', 1)" class="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Entrada">
-                                        <i class="fas fa-plus"></i>
+                                    <button onclick="views.openStockMovement('${item.id}', 'supply', 'in')" class="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Registrar entrada">
+                                        <i class="fas fa-arrow-down"></i>
                                     </button>
-                                    <button onclick="views.adjustStock('${item.id}', 'supply', -1)" class="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Salida">
-                                        <i class="fas fa-minus"></i>
+                                    <button onclick="views.openStockMovement('${item.id}', 'supply', 'out')" class="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Registrar salida">
+                                        <i class="fas fa-arrow-up"></i>
                                     </button>
                                     <button onclick="views.editItem('${item.id}', 'supply')" class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg" title="Editar">
                                         <i class="fas fa-edit"></i>
@@ -1608,11 +1608,11 @@
                             </td>
                             <td class="px-6 py-4">
                                 <div class="flex gap-2">
-                                    <button onclick="views.adjustStock('${item.id}', 'product', 1)" class="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Entrada">
-                                        <i class="fas fa-plus"></i>
+                                    <button onclick="views.openStockMovement('${item.id}', 'product', 'in')" class="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Registrar entrada">
+                                        <i class="fas fa-arrow-down"></i>
                                     </button>
-                                    <button onclick="views.adjustStock('${item.id}', 'product', -1)" class="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Salida">
-                                        <i class="fas fa-minus"></i>
+                                    <button onclick="views.openStockMovement('${item.id}', 'product', 'out')" class="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Registrar salida">
+                                        <i class="fas fa-arrow-up"></i>
                                     </button>
                                     <button onclick="views.editItem('${item.id}', 'product')" class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg" title="Editar">
                                         <i class="fas fa-edit"></i>
@@ -1625,18 +1625,154 @@
             },
 
             // Métodos de utilidad para inventario
-            adjustStock: (id, type, amount) => {
-                const item = type === 'supply' 
+            openStockMovement: (id, type, defaultMovement = 'in') => {
+                const item = type === 'supply'
                     ? store.supplies.find(i => i.id === id)
                     : store.products.find(i => i.id === id);
-                    
-                if (item) {
-                    item.stock += amount;
-                    if (item.stock < 0) item.stock = 0;
-                    utils.saveStore();
-                    utils.notify(`${amount > 0 ? 'Entrada' : 'Salida'} registrada: ${item.name}`);
-                    router.refresh();
+
+                if (!item) {
+                    utils.notify('Producto/Insumo no encontrado', 'error');
+                    return;
                 }
+
+                const isOut = defaultMovement === 'out';
+                const modal = document.getElementById('modal-content');
+                modal.innerHTML = `
+                    <div class="p-6 max-w-lg">
+                        <div class="flex justify-between items-center mb-6">
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-800">Movimiento de inventario</h2>
+                                <p class="text-sm text-gray-500 mt-1">${item.name}</p>
+                            </div>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button>
+                        </div>
+
+                        <form onsubmit="views.handleStockMovement(event, '${id}', '${type}')" class="space-y-4">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="bg-gray-50 rounded-lg p-3">
+                                    <p class="text-xs text-gray-500">Stock actual</p>
+                                    <p class="text-xl font-bold text-gray-900">${Number(item.stock || 0)} <span class="text-sm font-normal text-gray-500">${item.unit || ''}</span></p>
+                                </div>
+                                <div class="bg-gray-50 rounded-lg p-3">
+                                    <p class="text-xs text-gray-500">Unidad</p>
+                                    <p class="text-xl font-bold text-gray-900">${item.unit || 'pieza'}</p>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de movimiento</label>
+                                <select id="stockMovementType" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                                    <option value="in" ${!isOut ? 'selected' : ''}>Entrada / carga de stock</option>
+                                    <option value="out" ${isOut ? 'selected' : ''}>Salida / descuento manual</option>
+                                    <option value="set">Ajuste exacto de stock</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
+                                <input type="number" id="stockMovementQty" min="0.01" step="0.01" required class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="Ej: 1, 2.5, 0.25">
+                                <p class="text-xs text-gray-500 mt-1">Usa decimales cuando aplique. Ejemplo: si la unidad es metro, 25 cm = 0.25.</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Referencia / motivo</label>
+                                <input type="text" id="stockMovementReference" class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="Compra, ajuste, merma, corrección, etc.">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+                                <textarea id="stockMovementNotes" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="Detalle opcional del movimiento"></textarea>
+                            </div>
+
+                            <div class="flex justify-end gap-3 pt-4">
+                                <button type="button" onclick="closeModal()" class="px-4 py-2 border border-gray-300 rounded-lg">Cancelar</button>
+                                <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Guardar movimiento</button>
+                            </div>
+                        </form>
+                    </div>
+                `;
+                openModal();
+            },
+
+            handleStockMovement: async (event, id, type) => {
+                event.preventDefault();
+
+                const item = type === 'supply'
+                    ? store.supplies.find(i => i.id === id)
+                    : store.products.find(i => i.id === id);
+
+                if (!item) {
+                    utils.notify('Producto/Insumo no encontrado', 'error');
+                    return;
+                }
+
+                const movementType = document.getElementById('stockMovementType').value;
+                const qty = parseFloat(document.getElementById('stockMovementQty').value);
+                const reference = document.getElementById('stockMovementReference').value.trim();
+                const notes = document.getElementById('stockMovementNotes').value.trim();
+
+                if (!Number.isFinite(qty) || qty <= 0) {
+                    utils.notify('La cantidad debe ser mayor a 0', 'error');
+                    return;
+                }
+
+                const previousStock = Number(item.stock || 0);
+                let newStock = previousStock;
+                let movementQty = qty;
+
+                if (movementType === 'in') newStock = previousStock + qty;
+                if (movementType === 'out') newStock = previousStock - qty;
+                if (movementType === 'set') {
+                    newStock = qty;
+                    movementQty = Math.abs(newStock - previousStock);
+                }
+
+                if (newStock < 0) {
+                    utils.notify(`Stock insuficiente. Disponible: ${previousStock} ${item.unit || ''}`, 'error');
+                    return;
+                }
+
+                try {
+                    item.stock = Number(newStock.toFixed(4));
+                    item.updatedAt = new Date().toISOString();
+
+                    if (window.supabaseClient) {
+                        const table = type === 'supply' ? 'supplies' : 'products';
+                        const { error: updateError } = await supabaseClient
+                            .from(table)
+                            .update({ stock: item.stock, updated_at: new Date().toISOString() })
+                            .eq('id', id);
+
+                        if (updateError) throw updateError;
+
+                        await supabaseClient.from('inventory_movements').insert({
+                            item_id: id,
+                            item_type: type,
+                            item_name: item.name,
+                            type: movementType,
+                            quantity: movementQty,
+                            unit: item.unit || '',
+                            previous_stock: previousStock,
+                            new_stock: item.stock,
+                            reference: reference || 'Movimiento manual',
+                            notes: notes || null
+                        });
+                    }
+
+                    utils.saveStore();
+                    closeModal();
+                    utils.notify(`Movimiento guardado: ${item.name} → ${item.stock} ${item.unit || ''}`, 'success');
+                    await supabaseData.loadAll();
+                    router.refresh();
+                } catch (error) {
+                    console.error('Error guardando movimiento de inventario:', error);
+                    utils.notify('No se pudo guardar el movimiento: ' + error.message, 'error');
+                }
+            },
+
+            // Compatibilidad con versiones anteriores. Ya no suma/resta fijo; abre captura formal.
+            adjustStock: (id, type, amount) => {
+                views.openStockMovement(id, type, amount < 0 ? 'out' : 'in');
             },
 
             editItem: (id, type) => {
@@ -4140,7 +4276,7 @@
                 if (unitLabel) unitLabel.textContent = unit;
                 
                 if (option.value !== 'custom') {
-                    stockInfo.textContent = `Stock disponible: ${stock} ${unit} | ${name}`;
+                    stockInfo.textContent = `Stock disponible: ${stock} ${unit} | ${name}. Captura decimales si aplica; ej. 25 cm = 0.25 m`;
                     stockInfo.classList.remove('hidden');
                     
                     const qtyInput = itemRow.querySelector('.item-qty');
