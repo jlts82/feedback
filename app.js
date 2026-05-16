@@ -991,7 +991,7 @@
                 if (design.imageData && design.imageData.startsWith('data:')) {
                     try {
                         const fileExt = (design.fileType || 'png').split('/').pop();
-                        const fileName = `${Date.now()}_${design.id}.${fileExt}`;
+                        const fileName = `${Date.now()}_${design.id || utils.generateId()}.${fileExt}`;
                         const base64Data = design.imageData.split(',')[1];
 
                         const byteCharacters = atob(base64Data);
@@ -1011,31 +1011,36 @@
                                 upsert: true
                             });
 
-                        if (uploadError) {
-                            console.error('Error subiendo diseño:', uploadError);
-                            throw uploadError;
+                        if (!uploadError) {
+                            const { data: publicData } = supabaseClient
+                                .storage
+                                .from('designs')
+                                .getPublicUrl(fileName);
+
+                            imageUrl = publicData.publicUrl;
+                            fileUrl = publicData.publicUrl;
+                            storagePath = fileName;
                         }
-
-                        const { data: publicData } = supabaseClient
-                            .storage
-                            .from('designs')
-                            .getPublicUrl(fileName);
-
-                        imageUrl = publicData.publicUrl;
-                        fileUrl = publicData.publicUrl;
-                        storagePath = fileName;
-
                     } catch (err) {
-                        console.error('Error procesando imagen:', err);
-                        throw err;
+                        console.error('Error procesando diseño:', err);
                     }
                 }
 
                 const payload = {
-                    ...this.designToDb(design),
+                    id: String(design.id || utils.generateId()),
+                    name: design.name || '',
+                    client_id: design.clientId || null,
+                    client_name: design.clientName || 'Sin cliente específico',
+                    file_name: design.fileName || '',
+                    file_size: Number(design.fileSize || 0),
+                    file_type: design.fileType || '',
                     image_url: imageUrl,
                     file_url: fileUrl,
-                    storage_path: storagePath
+                    storage_path: storagePath,
+                    notes: design.notes || '',
+                    description: design.description || '',
+                    created_at: design.createdAt || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
                 };
 
                 const { data, error } = await supabaseClient
@@ -1049,11 +1054,8 @@
                 const saved = this.toDesign(data);
                 const idx = store.designs.findIndex(d => d.id === saved.id);
 
-                if (idx >= 0) {
-                    store.designs[idx] = saved;
-                } else {
-                    store.designs.push(saved);
-                }
+                if (idx >= 0) store.designs[idx] = saved;
+                else store.designs.push(saved);
 
                 return saved;
             },
