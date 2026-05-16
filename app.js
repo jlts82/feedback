@@ -983,16 +983,78 @@
 
             async saveDesign(design) {
                 if (!this.enabled || !window.supabaseClient) throw new Error('Supabase no disponible');
-                const payload = this.designToDb(design);
+
+                let imageUrl = design.imageUrl || '';
+                let fileUrl = design.fileUrl || '';
+                let storagePath = design.storagePath || '';
+
+                if (design.imageData && design.imageData.startsWith('data:')) {
+                    try {
+                        const fileExt = (design.fileType || 'png').split('/').pop();
+                        const fileName = `${Date.now()}_${design.id}.${fileExt}`;
+                        const base64Data = design.imageData.split(',')[1];
+
+                        const byteCharacters = atob(base64Data);
+                        const byteNumbers = new Array(byteCharacters.length);
+
+                        for (let i = 0; i < byteCharacters.length; i++) {
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }
+
+                        const byteArray = new Uint8Array(byteNumbers);
+
+                        const { error: uploadError } = await supabaseClient
+                            .storage
+                            .from('designs')
+                            .upload(fileName, byteArray, {
+                                contentType: design.fileType || 'image/png',
+                                upsert: true
+                            });
+
+                        if (uploadError) {
+                            console.error('Error subiendo diseño:', uploadError);
+                            throw uploadError;
+                        }
+
+                        const { data: publicData } = supabaseClient
+                            .storage
+                            .from('designs')
+                            .getPublicUrl(fileName);
+
+                        imageUrl = publicData.publicUrl;
+                        fileUrl = publicData.publicUrl;
+                        storagePath = fileName;
+
+                    } catch (err) {
+                        console.error('Error procesando imagen:', err);
+                        throw err;
+                    }
+                }
+
+                const payload = {
+                    ...this.designToDb(design),
+                    image_url: imageUrl,
+                    file_url: fileUrl,
+                    storage_path: storagePath
+                };
+
                 const { data, error } = await supabaseClient
                     .from('designs')
                     .upsert(payload, { onConflict: 'id' })
                     .select('*')
                     .single();
+
                 if (error) throw error;
+
                 const saved = this.toDesign(data);
                 const idx = store.designs.findIndex(d => d.id === saved.id);
-                if (idx >= 0) store.designs[idx] = saved; else store.designs.push(saved);
+
+                if (idx >= 0) {
+                    store.designs[idx] = saved;
+                } else {
+                    store.designs.push(saved);
+                }
+
                 return saved;
             },
 
