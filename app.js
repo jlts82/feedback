@@ -23,7 +23,7 @@
 
         // Data Store - Estructura migrada y normalizada
         const store = {
-            orders: JSON.parse(localStorage.getItem('dtf_orders')) || [],
+            orders: [],
             quotes: [],
             
             // ============================================================
@@ -32,7 +32,7 @@
             
             // SUPPLIES: Insumos de producción (no se venden directamente al cliente)
             // En Supabase: tabla 'supplies' con categorías vía tabla pivote
-            supplies: JSON.parse(localStorage.getItem('dtf_supplies')) || [
+            supplies: [
                 // Categoría: Tintas DTF
                 { 
                     id: 'sup_1', 
@@ -162,7 +162,7 @@
             
             // PRODUCTS: Productos terminados (se venden al cliente)
             // En Supabase: tabla 'products' con categorías vía tabla pivote
-            products: JSON.parse(localStorage.getItem('dtf_products')) || [
+            products: [
                 // Categoría: Playeras
                 { 
                     id: 'prod_1', 
@@ -278,7 +278,7 @@
             
             // NUEVO: Definición de categorías jerárquicas
             // En Supabase: tabla 'categories' con self-reference (parent_id)
-            categories: JSON.parse(localStorage.getItem('dtf_categories')) || {
+            categories: {
                 // Categorías de Insumos
                 supplies: {
                     tintas_dtf: {
@@ -343,9 +343,9 @@
             
             // LEGACY: Mantener inventory para compatibilidad durante transición
             // En producción con Supabase, esto se eliminaría
-            inventory: JSON.parse(localStorage.getItem('dtf_inventory')) || [],
+            inventory: [],
             
-            clients: JSON.parse(localStorage.getItem('dtf_clients')) || [
+            clients: [
                 { 
                     id: 'cli_1', 
                     name: 'Juan Pérez', 
@@ -413,10 +413,10 @@
                     notes: ''
                 }
             ],
-            invoices: JSON.parse(localStorage.getItem('dtf_invoices')) || [],
-            finanzas: JSON.parse(localStorage.getItem('dtf_finanzas')) || [],
-            designs: JSON.parse(localStorage.getItem('dtf_designs')) || [],
-            config: JSON.parse(localStorage.getItem('dtf_config')) || {
+            invoices: [],
+            finanzas: [],
+            designs: [],
+            config: {
                 prices: {
                     basePrice: 80,
                     colorMultiplier: 1.2,
@@ -520,10 +520,8 @@
                 };
                 
                 // En Supabase, esto iría a tabla 'inventory_movements'
-                const movements = JSON.parse(localStorage.getItem('dtf_movements') || '[]');
-                movements.push(movement);
-                localStorage.setItem('dtf_movements', JSON.stringify(movements));
-                
+                const movements = []
+                movements.push(movement);                
                 utils.saveStore();
                 return item;
             }
@@ -540,20 +538,8 @@
             
             // NUEVO: Guardado inteligente que respeta la separación
             saveStore: () => {
-                // Guardar cada entidad en su propia clave para facilitar migración
-                localStorage.setItem('dtf_orders', JSON.stringify(store.orders));
-                localStorage.setItem('dtf_supplies', JSON.stringify(store.supplies));
-                localStorage.setItem('dtf_products', JSON.stringify(store.products));
-                localStorage.setItem('dtf_categories', JSON.stringify(store.categories));
-                localStorage.setItem('dtf_clients', JSON.stringify(store.clients));
-                localStorage.setItem('dtf_invoices', JSON.stringify(store.invoices));
-                localStorage.setItem('dtf_finanzas', JSON.stringify(store.finanzas));
-                localStorage.setItem('dtf_designs', JSON.stringify(store.designs));
-                localStorage.setItem('dtf_config', JSON.stringify(store.config));
-                
-                // Legacy: mantener inventory sincronizado durante transición
-                localStorage.setItem('dtf_inventory', JSON.stringify([...store.supplies, ...store.products]));
-                
+                // V21: sin persistencia local de datos de negocio.
+                // Todo se guarda y se recarga desde Supabase.
                 utils.checkLowStock();
             },
             
@@ -602,6 +588,13 @@
         const supabaseData = {
             enabled: false,
 
+            requireSupabase() {
+                if (!window.supabaseClient) {
+                    throw new Error('Supabase no está disponible. Recarga la página o revisa la sesión.');
+                }
+                this.enabled = true;
+            },
+
             toProduct(row) {
                 return {
                     id: row.id,
@@ -620,6 +613,63 @@
                     location: row.location || '',
                     createdAt: row.created_at,
                     updatedAt: row.updated_at
+                };
+            },
+
+            productToDb(product) {
+                return {
+                    id: product.id || ('prod_' + Date.now()),
+                    name: product.name || '',
+                    sku: product.sku || '',
+                    description: product.description || '',
+                    category: product.category || '',
+                    subcategory: product.subcategory || '',
+                    stock: Number(product.stock || 0),
+                    min_stock: Number(product.minStock || product.min_stock || 0),
+                    unit: product.unit || 'pieza',
+                    cost: Number(product.cost || 0),
+                    sale_price: Number(product.salePrice || product.sale_price || 0),
+                    supplier: product.supplier || '',
+                    location: product.location || '',
+                    created_at: product.createdAt || product.created_at || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+            },
+
+            toSupply(row) {
+                return {
+                    id: row.id,
+                    name: row.name || '',
+                    description: row.description || '',
+                    category: row.category || '',
+                    subcategory: row.subcategory || '',
+                    type: 'supply',
+                    stock: Number(row.stock || 0),
+                    minStock: Number(row.min_stock || 0),
+                    unit: row.unit || 'pieza',
+                    cost: Number(row.cost || 0),
+                    supplier: row.supplier || '',
+                    location: row.location || '',
+                    createdAt: row.created_at,
+                    updatedAt: row.updated_at
+                };
+            },
+
+            supplyToDb(supply) {
+                return {
+                    id: supply.id || ('sup_' + Date.now()),
+                    name: supply.name || '',
+                    description: supply.description || '',
+                    category: supply.category || '',
+                    subcategory: supply.subcategory || '',
+                    stock: Number(supply.stock || 0),
+                    min_stock: Number(supply.minStock || supply.min_stock || 0),
+                    unit: supply.unit || 'pieza',
+                    cost: Number(supply.cost || 0),
+                    supplier: supply.supplier || '',
+                    location: supply.location || '',
+                    created_at: supply.createdAt || supply.created_at || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
                 };
             },
 
@@ -645,7 +695,7 @@
 
             clientToDb(client) {
                 return {
-                    id: client.id,
+                    id: client.id || utils.generateId(),
                     name: client.name || '',
                     phone: client.phone || '',
                     phone2: client.phone2 || '',
@@ -683,35 +733,9 @@
                 };
             },
 
-            toFinance(row) {
-                return {
-                    id: row.id,
-                    tipo: row.type === 'income' ? 'venta' : (row.category === 'insumos' ? 'gasto_insumo' : 'gasto_operativo'),
-                    concepto: row.concept || '',
-                    categoria: row.category || '',
-                    pedidoId: row.order_id || '',
-                    monto: Number(row.amount || 0),
-                    notas: row.notes || '',
-                    fecha: row.created_at || new Date().toISOString(),
-                    createdAt: row.created_at
-                };
-            },
-
             normalizeDeliveryType(value) {
                 const raw = String(value || 'local').toLowerCase().trim();
-                const map = {
-                    local: 'local',
-                    'entrega en local': 'local',
-                    tienda: 'local',
-                    pickup: 'pickup',
-                    recoge: 'pickup',
-                    'recoge cliente': 'pickup',
-                    shipping: 'shipping',
-                    envio: 'shipping',
-                    envío: 'shipping',
-                    paqueteria: 'shipping',
-                    paquetería: 'shipping'
-                };
+                const map = { local: 'local', 'entrega en local': 'local', tienda: 'local', pickup: 'pickup', recoge: 'pickup', 'recoge cliente': 'pickup', shipping: 'shipping', envio: 'shipping', envío: 'shipping', paqueteria: 'shipping', paquetería: 'shipping' };
                 return map[raw] || 'local';
             },
 
@@ -735,325 +759,273 @@
                 };
             },
 
+            toFinance(row) {
+                return {
+                    id: row.id,
+                    tipo: row.type === 'income' ? 'venta' : (row.category === 'insumos' ? 'gasto_insumo' : 'gasto_operativo'),
+                    concepto: row.concept || '',
+                    categoria: row.category || '',
+                    pedidoId: row.order_id || '',
+                    pedidoRef: row.order_id || '',
+                    monto: Number(row.amount || 0),
+                    notas: row.notes || '',
+                    fecha: row.created_at || new Date().toISOString(),
+                    createdAt: row.created_at
+                };
+            },
+
+            financeToDb(mov) {
+                const type = mov.tipo === 'venta' ? 'income' : 'expense';
+                const category = mov.tipo === 'gasto_insumo' ? 'insumos' : (mov.categoria || (mov.tipo === 'venta' ? 'pedido' : 'operativo'));
+                return {
+                    type,
+                    concept: mov.concepto || '',
+                    category,
+                    order_id: mov.pedidoId || mov.pedidoRef || null,
+                    amount: Number(mov.monto || 0),
+                    notes: mov.notas || null,
+                    created_at: mov.fecha || new Date().toISOString()
+                };
+            },
 
             toQuote(row) {
-                const rawItems = Array.isArray(row.items) ? row.items : [];
-                const firstItem = rawItems[0] || {};
-                const status = row.status || 'pendiente';
-                const convertedOrderId = row.converted_order_id || null;
+                const items = Array.isArray(row.items) ? row.items : [];
+                const first = items[0] || {};
+                const converted = row.status === 'convertida' || !!row.converted_order_id;
                 return {
                     id: row.id,
                     clientId: row.client_id,
                     clientName: row.client_name || '',
                     clientPhone: row.client_phone || '',
-                    productId: firstItem.productId || firstItem.product_id || firstItem.id || '',
-                    productName: firstItem.productName || firstItem.product_name || firstItem.name || 'Producto no especificado',
-                    qty: Number(firstItem.qty || firstItem.quantity || 0),
-                    size: firstItem.size || '',
-                    colors: firstItem.colors || '',
-                    status,
-                    items: rawItems,
-                    subtotal: Number(row.subtotal || row.total || 0),
+                    status: row.status || 'pendiente',
+                    items,
+                    productId: first.productId || first.product_id || first.id || '',
+                    productName: first.productName || first.product_name || first.name || 'Producto no especificado',
+                    qty: Number(first.quantity || first.qty || 0),
+                    size: first.size || '',
+                    colors: first.colors || '',
+                    subtotal: Number(row.subtotal || 0),
                     discount: Number(row.discount || 0),
                     total: Number(row.total || 0),
                     notes: row.notes || '',
-                    expiresAt: row.valid_until || row.expires_at || null,
-                    validUntil: row.valid_until || row.expires_at || null,
-                    convertedToOrder: status === 'convertida' || !!convertedOrderId,
-                    orderId: convertedOrderId,
-                    convertedOrderId,
+                    validUntil: row.valid_until,
+                    expiresAt: row.valid_until || row.created_at,
+                    convertedOrderId: row.converted_order_id || null,
+                    convertedToOrder: converted,
+                    orderId: row.converted_order_id || null,
                     createdAt: row.created_at,
                     updatedAt: row.updated_at
                 };
             },
 
             quoteToDb(quote) {
-                const quoteItems = Array.isArray(quote.items) && quote.items.length
-                    ? quote.items
-                    : [{
-                        productId: quote.productId || 'custom',
-                        productName: quote.productName || 'Producto no especificado',
-                        qty: Number(quote.qty || 0),
-                        quantity: Number(quote.qty || 0),
-                        size: quote.size || '',
-                        colors: quote.colors || '',
-                        price: Number(quote.qty || 0) > 0 ? Number(quote.total || 0) / Number(quote.qty || 1) : Number(quote.total || 0)
-                    }];
-
-                const expires = quote.validUntil || quote.expiresAt || null;
-                const validDate = expires ? String(expires).slice(0, 10) : null;
-
+                const items = Array.isArray(quote.items) && quote.items.length ? quote.items : [{
+                    productId: quote.productId || 'custom',
+                    productName: quote.productName || 'Producto no especificado',
+                    quantity: Number(quote.qty || 0),
+                    price: Number(quote.qty || 0) ? Number(quote.total || 0) / Number(quote.qty || 1) : Number(quote.total || 0),
+                    size: quote.size || '',
+                    colors: quote.colors || '',
+                    description: quote.notes || ''
+                }];
                 return {
                     id: String(quote.id || utils.generateId()),
                     client_id: quote.clientId || null,
                     client_name: quote.clientName || '',
                     client_phone: quote.clientPhone || '',
-                    status: quote.convertedToOrder ? 'convertida' : (quote.status || 'pendiente'),
-                    items: quoteItems,
+                    status: quote.convertedToOrder || quote.status === 'convertida' ? 'convertida' : (quote.status || 'pendiente'),
+                    items,
                     subtotal: Number(quote.subtotal || quote.total || 0),
                     discount: Number(quote.discount || 0),
                     total: Number(quote.total || 0),
                     notes: quote.notes || '',
-                    valid_until: validDate,
-                    converted_order_id: quote.orderId || quote.convertedOrderId || null,
+                    valid_until: (quote.validUntil || quote.expiresAt || '').slice(0,10) || null,
+                    converted_order_id: quote.convertedOrderId || quote.orderId || null,
                     created_at: quote.createdAt || new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 };
             },
 
-            async saveQuote(quote) {
-                const idx = store.quotes.findIndex(q => q.id === quote.id);
-                if (idx >= 0) store.quotes[idx] = quote; else store.quotes.push(quote);
+            toDesign(row) {
+                return {
+                    id: row.id,
+                    name: row.name || '',
+                    clientId: row.client_id || null,
+                    clientName: row.client_name || 'Sin cliente',
+                    fileName: row.file_name || row.filename || '',
+                    fileSize: row.file_size || '',
+                    fileType: row.file_type || '',
+                    notes: row.notes || '',
+                    imageData: row.image_data || null,
+                    iconUrl: row.icon_url || null,
+                    createdAt: row.created_at,
+                    updatedAt: row.updated_at
+                };
+            },
 
-                if (!this.enabled || !window.supabaseClient) {
-                    utils.saveStore();
-                    console.warn('V20: Supabase no disponible, cotización temporal solo en memoria:', quote.id);
-                    return quote;
-                }
-
-                const payload = this.quoteToDb(quote);
-                const { data, error } = await supabaseClient
-                    .from('quotes')
-                    .upsert(payload, { onConflict: 'id' })
-                    .select('*')
-                    .single();
-
-                if (error) {
-                    console.error('V20 error guardando cotización en Supabase:', error, payload);
-                    throw error;
-                }
-
-                const savedQuote = this.toQuote(data);
-                const savedIdx = store.quotes.findIndex(q => q.id === savedQuote.id);
-                if (savedIdx >= 0) store.quotes[savedIdx] = savedQuote; else store.quotes.push(savedQuote);
-                utils.saveStore();
-                console.info('V20 cotización guardada en Supabase:', savedQuote.id);
-                return savedQuote;
+            designToDb(design) {
+                return {
+                    id: String(design.id || utils.generateId()),
+                    name: design.name || '',
+                    client_id: design.clientId || null,
+                    client_name: design.clientName || '',
+                    file_name: design.fileName || '',
+                    file_size: design.fileSize || '',
+                    file_type: design.fileType || '',
+                    notes: design.notes || '',
+                    image_data: design.imageData || null,
+                    icon_url: design.iconUrl || null,
+                    created_at: design.createdAt || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
             },
 
             async loadAll() {
-                if (!window.supabaseClient) return;
-                this.enabled = true;
-                try {
-                    const [clientsRes, productsRes, ordersRes, financeRes, quotesRes] = await Promise.all([
-                        supabaseClient.from('clients').select('*').order('name', { ascending: true }),
-                        supabaseClient.from('products').select('*').order('name', { ascending: true }),
-                        supabaseClient.from('orders').select('*').order('created_at', { ascending: false }),
-                        supabaseClient.from('finance_movements').select('*').order('created_at', { ascending: false }),
-                        supabaseClient.from('quotes').select('*').order('created_at', { ascending: false })
-                    ]);
-
-                    if (!clientsRes.error && Array.isArray(clientsRes.data)) store.clients = clientsRes.data.map(r => this.toClient(r));
-                    if (!productsRes.error && Array.isArray(productsRes.data)) store.products = productsRes.data.map(r => this.toProduct(r));
-                    if (!ordersRes.error && Array.isArray(ordersRes.data)) store.orders = ordersRes.data.map(r => this.toOrder(r));
-                    if (!financeRes.error && Array.isArray(financeRes.data)) store.finanzas = financeRes.data.map(r => this.toFinance(r));
-                    if (!quotesRes.error && Array.isArray(quotesRes.data)) store.quotes = quotesRes.data.map(r => this.toQuote(r));
-
-                    utils.saveStore();
-                } catch (error) {
-                    console.warn('V11 Supabase loadAll fallback localStorage:', error.message);
-                    this.enabled = false;
-                }
-            },
-
-            async ensureClientInSupabase(clientId) {
-                if (!this.enabled || !window.supabaseClient || !clientId) return false;
-                const localClient = store.clients.find(c => c.id === clientId);
-                if (!localClient) return false;
-
-                const { data: existing, error: lookupError } = await supabaseClient
-                    .from('clients')
-                    .select('id')
-                    .eq('id', clientId)
-                    .maybeSingle();
-
-                if (!lookupError && existing) return true;
-
-                try {
-                    await this.saveClient(localClient);
-                    return true;
-                } catch (error) {
-                    console.error('V16 error sincronizando cliente antes de pedido:', error, localClient);
-                    throw error;
-                }
-            },
-
-            async migrateLocalClientsIfNeeded() {
-                if (!this.enabled || !window.supabaseClient) return;
-                try {
-                    const localClients = JSON.parse(localStorage.getItem('dtf_clients') || '[]');
-                    if (!Array.isArray(localClients) || localClients.length === 0) return;
-
-                    const { data: remoteClients, error } = await supabaseClient
-                        .from('clients')
-                        .select('id')
-                        .limit(1);
-
-                    if (error) return;
-                    if (Array.isArray(remoteClients) && remoteClients.length > 0) return;
-
-                    console.info('V16 migrando clientes locales a Supabase:', localClients.length);
-                    for (const client of localClients) {
-                        if (client && client.id && client.name) {
-                            await this.saveClient(client);
-                        }
-                    }
-                    await this.loadAll();
-                } catch (error) {
-                    console.warn('V16 no se pudieron migrar clientes locales:', error.message || error);
-                }
+                this.requireSupabase();
+                const [clientsRes, suppliesRes, productsRes, ordersRes, financeRes, quotesRes, designsRes] = await Promise.all([
+                    supabaseClient.from('clients').select('*').order('name', { ascending: true }),
+                    supabaseClient.from('supplies').select('*').order('name', { ascending: true }),
+                    supabaseClient.from('products').select('*').order('name', { ascending: true }),
+                    supabaseClient.from('orders').select('*').order('created_at', { ascending: false }),
+                    supabaseClient.from('finance_movements').select('*').order('created_at', { ascending: false }),
+                    supabaseClient.from('quotes').select('*').order('created_at', { ascending: false }),
+                    supabaseClient.from('designs').select('*').order('created_at', { ascending: false })
+                ]);
+                const errors = [clientsRes, suppliesRes, productsRes, ordersRes, financeRes, quotesRes, designsRes].filter(r => r.error).map(r => r.error.message).join(' | ');
+                if (errors) console.warn('V21 Supabase load warnings:', errors);
+                if (!clientsRes.error) store.clients = clientsRes.data.map(r => this.toClient(r));
+                if (!suppliesRes.error) store.supplies = suppliesRes.data.map(r => this.toSupply(r));
+                if (!productsRes.error) store.products = productsRes.data.map(r => this.toProduct(r));
+                if (!ordersRes.error) store.orders = ordersRes.data.map(r => this.toOrder(r));
+                if (!financeRes.error) store.finanzas = financeRes.data.map(r => this.toFinance(r));
+                if (!quotesRes.error) store.quotes = quotesRes.data.map(r => this.toQuote(r));
+                if (!designsRes.error) store.designs = designsRes.data.map(r => this.toDesign(r));
+                utils.saveStore();
             },
 
             async saveClient(client) {
-                const idx = store.clients.findIndex(c => c.id === client.id);
-                if (idx >= 0) store.clients[idx] = client; else store.clients.push(client);
+                this.requireSupabase();
+                const { data, error } = await supabaseClient.from('clients').upsert(this.clientToDb(client), { onConflict: 'id' }).select('*').single();
+                if (error) throw error;
+                const saved = this.toClient(data);
+                const idx = store.clients.findIndex(c => c.id === saved.id);
+                if (idx >= 0) store.clients[idx] = saved; else store.clients.push(saved);
+                return saved;
+            },
 
-                if (!this.enabled || !window.supabaseClient) {
-                    utils.saveStore();
-                    console.warn('V16: Supabase no disponible, cliente guardado temporalmente en localStorage:', client.id);
-                    return client;
-                }
-
-                const payload = this.clientToDb(client);
-                const { data, error } = await supabaseClient
-                    .from('clients')
-                    .upsert(payload, { onConflict: 'id' })
-                    .select('*')
-                    .single();
-
-                if (error) {
-                    console.error('V16 error guardando cliente en Supabase:', error, payload);
-                    throw error;
-                }
-
-                const savedClient = this.toClient(data);
-                const savedIdx = store.clients.findIndex(c => c.id === savedClient.id);
-                if (savedIdx >= 0) store.clients[savedIdx] = savedClient;
-                utils.saveStore();
-                console.info('V16 cliente guardado en Supabase:', savedClient.id);
-                return savedClient;
+            async deleteClient(clientId) {
+                this.requireSupabase();
+                const { error } = await supabaseClient.from('clients').delete().eq('id', clientId);
+                if (error) throw error;
+                store.clients = store.clients.filter(c => c.id !== clientId);
             },
 
             async saveOrder(order) {
+                this.requireSupabase();
+                const { data, error } = await supabaseClient.rpc('save_order_safe', { p_order: this.orderToDb(order) });
+                if (error) throw error;
                 const idx = store.orders.findIndex(o => o.id === order.id);
                 if (idx >= 0) store.orders[idx] = order; else store.orders.push(order);
-
-                if (!this.enabled || !window.supabaseClient) {
-                    utils.saveStore();
-                    console.warn('V16: Supabase no disponible, pedido guardado temporalmente en localStorage:', order.id);
-                    return order;
-                }
-
-                const payload = this.orderToDb(order);
-
-                // V16: guardado robusto por RPC. La función valida cliente, normaliza entrega
-                // y evita 409 por FK cuando el cliente aún no existe en Supabase.
-                const { data, error } = await supabaseClient.rpc('save_order_safe', {
-                    p_order: payload
-                });
-
-                if (error) {
-                    console.error('V16 error guardando pedido en Supabase:', error, payload);
-                    throw error;
-                }
-
-                if (data && data.client_id === null) {
-                    order.clientId = null;
-                }
-
-                console.info('V16 pedido guardado en Supabase:', data);
-                utils.saveStore();
-                return order;
+                return data || order;
             },
 
             async updateOrder(order, previousStatus = null) {
+                this.requireSupabase();
                 if (order.status === 'entregado' && previousStatus !== 'entregado') {
                     await this.processDeliveredOrder(order);
-                }
-                if (this.enabled && window.supabaseClient) {
-                    const { error } = await supabaseClient.rpc('save_order_safe', {
-                        p_order: this.orderToDb(order)
-                    });
+                } else {
+                    const { error } = await supabaseClient.rpc('save_order_safe', { p_order: this.orderToDb(order) });
                     if (error) throw error;
                 }
-                utils.saveStore();
+                await this.loadAll();
+            },
+
+            async deleteOrder(orderId) {
+                this.requireSupabase();
+                const { error } = await supabaseClient.from('orders').delete().eq('id', orderId);
+                if (error) throw error;
+                store.orders = store.orders.filter(o => o.id !== orderId);
             },
 
             async processDeliveredOrder(order) {
-                if (order.stockProcessed && order.financeProcessed) return;
+                this.requireSupabase();
+                const { data, error } = await supabaseClient.rpc('process_order_delivery', { p_order_id: order.id });
+                if (error) throw error;
+                await this.loadAll();
+                utils.notify(`Entrega procesada: stock descontado e ingreso registrado (${utils.formatCurrency(Number(order.total || 0))})`, 'success');
+                return data;
+            },
 
-                if (this.enabled && window.supabaseClient) {
-                    // V16: flujo productivo en Supabase con RPC atómico.
-                    // La función inserta/actualiza el pedido, descuenta stock, registra movimiento de inventario
-                    // y crea el ingreso financiero en una sola operación protegida contra duplicados.
-                    const { data, error } = await supabaseClient.rpc('process_order_delivery', {
-                        p_order: this.orderToDb(order)
-                    });
+            async saveSupply(supply) {
+                this.requireSupabase();
+                const { data, error } = await supabaseClient.from('supplies').upsert(this.supplyToDb(supply), { onConflict: 'id' }).select('*').single();
+                if (error) throw error;
+                const saved = this.toSupply(data);
+                const idx = store.supplies.findIndex(i => i.id === saved.id);
+                if (idx >= 0) store.supplies[idx] = saved; else store.supplies.push(saved);
+                return saved;
+            },
 
-                    if (error) {
-                        console.error('V16 error procesando entrega en Supabase:', error, order);
-                        throw error;
-                    }
+            async saveProduct(product) {
+                this.requireSupabase();
+                const { data, error } = await supabaseClient.from('products').upsert(this.productToDb(product), { onConflict: 'id' }).select('*').single();
+                if (error) throw error;
+                const saved = this.toProduct(data);
+                const idx = store.products.findIndex(i => i.id === saved.id);
+                if (idx >= 0) store.products[idx] = saved; else store.products.push(saved);
+                return saved;
+            },
 
-                    const result = Array.isArray(data) ? data[0] : data;
-                    order.stockProcessed = true;
-                    order.financeProcessed = true;
+            async deleteItem(itemId, type) {
+                this.requireSupabase();
+                const table = type === 'supply' ? 'supplies' : 'products';
+                const { error } = await supabaseClient.from(table).delete().eq('id', itemId);
+                if (error) throw error;
+                const key = type === 'supply' ? 'supplies' : 'products';
+                store[key] = store[key].filter(i => i.id !== itemId);
+            },
 
-                    // Refrescar productos afectados desde Supabase para reflejar stock real.
-                    const ids = (order.items || [])
-                        .map(item => item.productId)
-                        .filter(id => id && id !== 'custom');
+            async saveFinance(mov) {
+                this.requireSupabase();
+                const { data, error } = await supabaseClient.from('finance_movements').insert(this.financeToDb(mov)).select('*').single();
+                if (error) throw error;
+                const saved = this.toFinance(data);
+                store.finanzas.unshift(saved);
+                return saved;
+            },
 
-                    if (ids.length) {
-                        const { data: updatedProducts, error: productsError } = await supabaseClient
-                            .from('products')
-                            .select('*')
-                            .in('id', ids);
-                        if (!productsError && Array.isArray(updatedProducts)) {
-                            updatedProducts.forEach(row => {
-                                const idx = store.products.findIndex(p => p.id === row.id);
-                                if (idx >= 0) store.products[idx] = this.toProduct(row);
-                            });
-                        }
-                    }
+            async deleteFinance(id) {
+                this.requireSupabase();
+                const { error } = await supabaseClient.from('finance_movements').delete().eq('id', id);
+                if (error) throw error;
+                store.finanzas = store.finanzas.filter(m => m.id !== id);
+            },
 
-                    utils.notify(`Entrega procesada: stock descontado e ingreso registrado (${utils.formatCurrency(Number(order.total || 0))})`, 'success');
-                    console.info('V16 entrega procesada:', result);
-                    return;
-                }
+            async saveQuote(quote) {
+                this.requireSupabase();
+                const { data, error } = await supabaseClient.from('quotes').upsert(this.quoteToDb(quote), { onConflict: 'id' }).select('*').single();
+                if (error) throw error;
+                const saved = this.toQuote(data);
+                const idx = store.quotes.findIndex(q => q.id === saved.id);
+                if (idx >= 0) store.quotes[idx] = saved; else store.quotes.push(saved);
+                return saved;
+            },
 
-                // Fallback local solo para demo sin Supabase.
-                const stockMessages = [];
-                if (!order.stockProcessed) {
-                    for (const item of (order.items || [])) {
-                        if (!item.productId || item.productId === 'custom') continue;
-                        const product = store.products.find(p => p.id === item.productId);
-                        if (!product) continue;
-                        const qty = Number(item.quantity || 0);
-                        if (qty <= 0) continue;
-                        if (Number(product.stock || 0) < qty) throw new Error(`Stock insuficiente para ${product.name}. Disponible: ${product.stock}`);
-                        product.stock = Number(product.stock || 0) - qty;
-                        stockMessages.push(`${product.name}: -${qty} ${product.unit || ''}`);
-                    }
-                    order.stockProcessed = true;
-                }
+            async saveDesign(design) {
+                this.requireSupabase();
+                const { data, error } = await supabaseClient.from('designs').upsert(this.designToDb(design), { onConflict: 'id' }).select('*').single();
+                if (error) throw error;
+                const saved = this.toDesign(data);
+                const idx = store.designs.findIndex(d => d.id === saved.id);
+                if (idx >= 0) store.designs[idx] = saved; else store.designs.push(saved);
+                return saved;
+            },
 
-                if (!order.financeProcessed) {
-                    store.finanzas.push({
-                        id: utils.generateId(),
-                        tipo: 'venta',
-                        concepto: `Venta pedido ${order.id}`,
-                        categoria: 'pedido',
-                        pedidoId: order.id,
-                        monto: Number(order.total || 0),
-                        notas: `Ingreso automático por pedido entregado de ${order.clientName || 'cliente'}`,
-                        fecha: new Date().toISOString()
-                    });
-                    order.financeProcessed = true;
-                }
-
-                if (stockMessages.length) utils.notify(`Stock descontado: ${stockMessages.join(', ')}`, 'success');
-                if (order.financeProcessed) utils.notify('Ingreso registrado en Finanzas', 'success');
+            async deleteDesign(designId) {
+                this.requireSupabase();
+                const { error } = await supabaseClient.from('designs').delete().eq('id', designId);
+                if (error) throw error;
+                store.designs = store.designs.filter(d => d.id !== designId);
             }
         };
         window.supabaseData = supabaseData;
@@ -1974,7 +1946,7 @@
                             item_id: id,
                             item_type: type,
                             item_name: item.name,
-                            type: movementType,
+                            type: movementType === 'in' ? 'entrada' : (movementType === 'out' ? 'salida' : 'ajuste'),
                             quantity: movementQty,
                             unit: item.unit || '',
                             previous_stock: previousStock,
@@ -2247,7 +2219,7 @@
             },
 
             clients: () => {
-                const savedView = localStorage.getItem('dtf_clients_view') || 'cards';
+                const savedView = 'cards';
                 return `
                     <div class="space-y-6 fade-in">
                         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -2277,7 +2249,7 @@
             },
 
             setClientView: (mode) => {
-                localStorage.setItem('dtf_clients_view', mode);
+                
                 const grid = document.getElementById('clientsGrid');
                 const btnCards = document.getElementById('viewToggleCards');
                 const btnList = document.getElementById('viewToggleList');
@@ -2480,7 +2452,7 @@
                         c.rfc?.toLowerCase().includes(search)
                     );
                 }
-                const mode = localStorage.getItem('dtf_clients_view') || 'cards';
+                const mode = 'cards';
                 const grid = document.getElementById('clientsGrid');
                 if (mode === 'list') {
                     grid.innerHTML = views.renderClientsList(filtered);
@@ -2600,13 +2572,18 @@
                 openModal();
             },
 
-            deleteDesign: (designId) => {
+            deleteDesign: async (designId) => {
                 if (!confirm('¿Eliminar este diseño permanentemente?')) return;
                 
-                store.designs = store.designs.filter(d => d.id !== designId);
-                utils.saveStore();
-                utils.notify('Diseño eliminado');
-                router.refresh();
+                try {
+                    await supabaseData.deleteDesign(designId);
+                    utils.notify('Diseño eliminado', 'success');
+                    await supabaseData.loadAll();
+                    router.refresh();
+                } catch (error) {
+                    console.error(error);
+                    utils.notify('No se pudo eliminar el diseño: ' + (error.message || error), 'error');
+                }
             },
 
             useDesignInOrder: (designId) => {
@@ -3401,7 +3378,7 @@
             document.getElementById(`inventory-content-${tab}`).classList.remove('hidden');
             
             // Guardar preferencia
-            localStorage.setItem('dtf_inventory_tab', tab);
+            
         }
 
         function filterSupplies() {
@@ -3475,7 +3452,7 @@
             }
         }
 
-        function handleAddSupply(e) {
+        async function handleAddSupply(e) {
             e.preventDefault();
             
             const supply = {
@@ -3495,14 +3472,19 @@
                 createdAt: new Date().toISOString()
             };
             
-            store.supplies.push(supply);
-            utils.saveStore();
-            utils.notify('Insumo agregado correctamente');
-            closeModal();
-            router.refresh();
+            try {
+                await supabaseData.saveSupply(supply);
+                utils.notify('Insumo agregado correctamente', 'success');
+                closeModal();
+                await supabaseData.loadAll();
+                router.refresh();
+            } catch (error) {
+                console.error(error);
+                utils.notify('No se pudo guardar el insumo: ' + (error.message || error), 'error');
+            }
         }
 
-        function handleAddProduct(e) {
+        async function handleAddProduct(e) {
             e.preventDefault();
             
             let categoryKey = document.getElementById('newProductCategory').value;
@@ -3548,11 +3530,16 @@
                 createdAt: new Date().toISOString()
             };
             
-            store.products.push(product);
-            utils.saveStore();
-            utils.notify('Producto agregado correctamente');
-            closeModal();
-            router.refresh();
+            try {
+                await supabaseData.saveProduct(product);
+                utils.notify('Producto agregado correctamente', 'success');
+                closeModal();
+                await supabaseData.loadAll();
+                router.refresh();
+            } catch (error) {
+                console.error(error);
+                utils.notify('No se pudo guardar el producto: ' + (error.message || error), 'error');
+            }
         }
 
         // ============================================================
@@ -3827,8 +3814,8 @@
             const totalGastosOp      = del_mes.filter(function(m){ return m.tipo==='gasto_operativo'; }).reduce(function(a,m){ return a+m.monto; }, 0);
             const utilidad = totalVentas - totalGastosInsumos - totalGastosOp;
 
-            const tipoFiltro = localStorage.getItem('dtf_fin_tipo') || '';
-            const mesFiltro  = localStorage.getItem('dtf_fin_mes')  || '';
+            const tipoFiltro = '';
+            const mesFiltro  = '';
             let filtrados = movs.slice();
             if (tipoFiltro) filtrados = filtrados.filter(function(m){ return m.tipo === tipoFiltro; });
             if (mesFiltro)  filtrados = filtrados.filter(function(m){ return m.fecha && m.fecha.startsWith(mesFiltro); });
@@ -3946,17 +3933,22 @@
 
         const finanzas = {
             applyFilter: () => {
-                localStorage.setItem('dtf_fin_tipo', document.getElementById('finTipoFiltro').value);
-                localStorage.setItem('dtf_fin_mes',  document.getElementById('finMesFiltro').value);
+                
+                
                 router.refresh();
             },
 
-            deleteMovimiento: (id) => {
+            deleteMovimiento: async (id) => {
                 if (!confirm('¿Eliminar este movimiento?')) return;
-                store.finanzas = store.finanzas.filter(m => m.id !== id);
-                utils.saveStore();
-                utils.notify('Movimiento eliminado', 'success');
-                router.refresh();
+                try {
+                    await supabaseData.deleteFinance(id);
+                    utils.notify('Movimiento eliminado', 'success');
+                    await supabaseData.loadAll();
+                    router.refresh();
+                } catch (error) {
+                    console.error(error);
+                    utils.notify('No se pudo eliminar el movimiento: ' + (error.message || error), 'error');
+                }
             },
 
             showForm: () => {
@@ -4078,7 +4070,7 @@
                 else wrap.classList.add('hidden');
             },
 
-            saveMovimiento: (e) => {
+            saveMovimiento: async (e) => {
                 e.preventDefault();
                 const tipo = document.getElementById('finTipo').value;
                 if (!tipo) { utils.notify('Selecciona un tipo', 'error'); return; }
@@ -4095,11 +4087,16 @@
                     creadoEn: new Date().toISOString()
                 };
 
-                store.finanzas.push(mov);
-                utils.saveStore();
-                utils.notify('Movimiento registrado correctamente');
-                closeModal();
-                router.refresh();
+                try {
+                    await supabaseData.saveFinance(mov);
+                    utils.notify('Movimiento registrado correctamente', 'success');
+                    closeModal();
+                    await supabaseData.loadAll();
+                    router.refresh();
+                } catch (error) {
+                    console.error(error);
+                    utils.notify('No se pudo registrar el movimiento: ' + (error.message || error), 'error');
+                }
             },
 
             exportExcel: () => {
@@ -4245,7 +4242,7 @@
                 
                 // Restaurar tab de inventario si es necesario
                 if (route === 'inventory') {
-                    const savedTab = localStorage.getItem('dtf_inventory_tab') || 'supplies';
+                    const savedTab = 'supplies';
                     switchInventoryTab(savedTab);
                 }
                 
@@ -4870,39 +4867,38 @@
 
         async function handleQuoteSubmit(e) {
             e.preventDefault();
-            
+
             const clientId = document.getElementById('quoteClient').value;
             const client = store.clients.find(c => c.id === clientId);
-            
-            if (!client) {
-                utils.notify('Cliente no encontrado', 'error');
-                return;
-            }
-            
+            if (!client) { utils.notify('Cliente no encontrado', 'error'); return; }
+
             const productSelect = document.getElementById('quoteProduct');
             const productOption = productSelect.selectedOptions[0];
             const productId = productSelect.value;
             const productName = productOption ? (productOption.dataset.name || 'Personalizado') : 'Personalizado';
-            
-            if (!productId) {
-                utils.notify('Selecciona un producto', 'error');
-                return;
-            }
-            
+            if (!productId) { utils.notify('Selecciona un producto', 'error'); return; }
+
+            const qty = parseFloat(document.getElementById('quoteQty').value) || 0;
+            const total = calculateQuote();
             const quote = {
                 id: utils.generateId(),
-                clientId: clientId,
+                clientId,
                 clientName: client.name,
-                productId: productId,
-                productName: productName,
-                qty: parseInt(document.getElementById('quoteQty').value),
+                clientPhone: client.phone || '',
+                productId,
+                productName,
+                qty,
                 size: document.getElementById('quoteSize').value,
-                colors: document.querySelector('input[name="colors"]:checked').value,
-                total: calculateQuote(),
+                colors: document.querySelector('input[name=\"colors\"]:checked').value,
+                total,
+                subtotal: total,
+                discount: Number(client.discount || 0),
                 notes: document.getElementById('quoteNotes').value,
                 createdAt: new Date().toISOString(),
                 expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-                convertedToOrder: false
+                validUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0,10),
+                convertedToOrder: false,
+                items: [{ productId, productName, quantity: qty, price: qty ? total / qty : total, size: document.getElementById('quoteSize').value, colors: document.querySelector('input[name=\"colors\"]:checked').value, description: document.getElementById('quoteNotes').value }]
             };
 
             try {
@@ -4912,35 +4908,37 @@
                 await supabaseData.loadAll();
                 router.refresh();
             } catch (error) {
-                console.error('V20 error guardando cotización:', error);
-                utils.notify('No se pudo guardar la cotización: ' + (error.message || error.details || JSON.stringify(error)), 'error');
+                console.error('Error guardando cotización:', error);
+                utils.notify('No se pudo guardar la cotización: ' + (error.message || error.details || error.hint || JSON.stringify(error)), 'error');
             }
         }
 
         async function quoteToOrder(quoteId) {
             const quote = store.quotes.find(q => q.id === quoteId);
             if (!quote) return;
-            
+
             if (confirm('¿Convertir esta cotización en pedido?')) {
+                const qty = Number(quote.qty || (quote.items && quote.items[0] && quote.items[0].quantity) || 1);
                 const order = {
                     id: utils.generateId(),
                     clientId: quote.clientId,
                     clientName: quote.clientName,
+                    clientPhone: quote.clientPhone || '',
                     items: [{
-                        productId: quote.productId || 'custom',
-                        productName: quote.productName || `Cotización #${quote.id.substr(-4)}`,
-                        description: `Impresión DTF - ${quote.qty} piezas tamaño ${quote.size}`,
-                        quantity: quote.qty,
-                        price: quote.total / quote.qty
+                        productId: quote.productId || (quote.items && quote.items[0] && quote.items[0].productId) || 'custom',
+                        productName: quote.productName || (quote.items && quote.items[0] && quote.items[0].productName) || `Cotización #${quote.id.substr(-4)}`,
+                        description: quote.notes || `Impresión DTF - ${qty} piezas tamaño ${quote.size || ''}`,
+                        quantity: qty,
+                        price: qty ? Number(quote.total || 0) / qty : Number(quote.total || 0)
                     }],
-                    total: quote.total,
+                    total: Number(quote.total || 0),
                     status: 'recibido',
                     deliveryType: 'local',
-                    description: quote.notes,
+                    description: quote.notes || '',
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString()
                 };
-                
+
                 try {
                     await supabaseData.saveOrder(order);
                     quote.convertedToOrder = true;
@@ -4952,8 +4950,8 @@
                     await supabaseData.loadAll();
                     router.navigate('orders');
                 } catch (error) {
-                    console.error('V20 error convirtiendo cotización:', error);
-                    utils.notify('No se pudo convertir la cotización: ' + (error.message || error.details || JSON.stringify(error)), 'error');
+                    console.error('Error convirtiendo cotización:', error);
+                    utils.notify('No se pudo convertir la cotización: ' + (error.message || error.details || error.hint || JSON.stringify(error)), 'error');
                 }
             }
         }
@@ -5077,7 +5075,7 @@
             }
         }
 
-        function handleClientUpdate(e, clientId) {
+        async function handleClientUpdate(e, clientId) {
             e.preventDefault();
             const client = store.clients.find(c => c.id === clientId);
             if (!client) return;
@@ -5115,22 +5113,33 @@
             };
             client.updatedAt = new Date().toISOString();
 
-            utils.saveStore();
-            utils.notify(`Cliente "${client.name}" actualizado correctamente`, 'success');
-            closeModal();
-            router.refresh();
+            try {
+                await supabaseData.saveClient(client);
+                utils.notify(`Cliente "${client.name}" actualizado correctamente`, 'success');
+                closeModal();
+                await supabaseData.loadAll();
+                router.refresh();
+            } catch (error) {
+                console.error(error);
+                utils.notify('No se pudo actualizar el cliente: ' + (error.message || error), 'error');
+            }
         }
 
-        function confirmDeleteOrder(orderId) {
+        async function confirmDeleteOrder(orderId) {
             if (!confirm('¿Eliminar este pedido permanentemente? Esta acción no se puede deshacer.')) return;
-            store.orders = store.orders.filter(o => o.id !== orderId);
-            utils.saveStore();
-            utils.notify('Pedido eliminado', 'success');
-            closeModal();
-            router.refresh();
+            try {
+                await supabaseData.deleteOrder(orderId);
+                utils.notify('Pedido eliminado', 'success');
+                closeModal();
+                await supabaseData.loadAll();
+                router.refresh();
+            } catch (error) {
+                console.error(error);
+                utils.notify('No se pudo eliminar el pedido: ' + (error.message || error), 'error');
+            }
         }
 
-        function confirmDeleteClient(clientId) {
+        async function confirmDeleteClient(clientId) {
             const client = store.clients.find(c => c.id === clientId);
             const hasOrders = store.orders.some(o => o.clientId === clientId);
             if (hasOrders) {
@@ -5138,14 +5147,19 @@
                 return;
             }
             if (!confirm(`¿Eliminar al cliente "${client?.name}"? Esta acción no se puede deshacer.`)) return;
-            store.clients = store.clients.filter(c => c.id !== clientId);
-            utils.saveStore();
-            utils.notify('Cliente eliminado', 'success');
-            closeModal();
-            router.refresh();
+            try {
+                await supabaseData.deleteClient(clientId);
+                utils.notify('Cliente eliminado', 'success');
+                closeModal();
+                await supabaseData.loadAll();
+                router.refresh();
+            } catch (error) {
+                console.error(error);
+                utils.notify('No se pudo eliminar el cliente: ' + (error.message || error), 'error');
+            }
         }
 
-        function handleUpdateItem(e, itemId, type) {
+        async function handleUpdateItem(e, itemId, type) {
             e.preventDefault();
             const storeKey = type === 'supply' ? 'supplies' : 'products';
             const item = store[storeKey].find(i => i.id === itemId);
@@ -5169,21 +5183,33 @@
                 if (loc) item.location = loc.value.trim();
             }
 
-            utils.saveStore();
-            utils.notify(`${type === 'supply' ? 'Insumo' : 'Producto'} actualizado correctamente`, 'success');
-            closeModal();
-            router.refresh();
+            try {
+                if (type === 'supply') await supabaseData.saveSupply(item);
+                else await supabaseData.saveProduct(item);
+                utils.notify(`${type === 'supply' ? 'Insumo' : 'Producto'} actualizado correctamente`, 'success');
+                closeModal();
+                await supabaseData.loadAll();
+                router.refresh();
+            } catch (error) {
+                console.error(error);
+                utils.notify('No se pudo actualizar: ' + (error.message || error), 'error');
+            }
         }
 
-        function confirmDeleteItem(itemId, type) {
+        async function confirmDeleteItem(itemId, type) {
             const storeKey = type === 'supply' ? 'supplies' : 'products';
             const item = store[storeKey].find(i => i.id === itemId);
             if (!confirm(`¿Eliminar "${item?.name}"? Esta acción no se puede deshacer.`)) return;
-            store[storeKey] = store[storeKey].filter(i => i.id !== itemId);
-            utils.saveStore();
-            utils.notify(`${type === 'supply' ? 'Insumo' : 'Producto'} eliminado`, 'success');
-            closeModal();
-            router.refresh();
+            try {
+                await supabaseData.deleteItem(itemId, type);
+                utils.notify(`${type === 'supply' ? 'Insumo' : 'Producto'} eliminado`, 'success');
+                closeModal();
+                await supabaseData.loadAll();
+                router.refresh();
+            } catch (error) {
+                console.error(error);
+                utils.notify('No se pudo eliminar: ' + (error.message || error), 'error');
+            }
         }
 
         function toggleFiscalFields() {
@@ -5372,12 +5398,17 @@
             }
         }
 
-        function finishDesignUpload(design) {
-            store.designs.push(design);
-            utils.saveStore();
-            utils.notify('Diseño subido exitosamente');
-            closeModal();
-            router.refresh();
+        async function finishDesignUpload(design) {
+            try {
+                await supabaseData.saveDesign(design);
+                utils.notify('Diseño subido exitosamente', 'success');
+                closeModal();
+                await supabaseData.loadAll();
+                router.refresh();
+            } catch (error) {
+                console.error(error);
+                utils.notify('No se pudo subir el diseño: ' + (error.message || error), 'error');
+            }
         }
 
 
