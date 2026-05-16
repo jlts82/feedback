@@ -24,7 +24,7 @@
         // Data Store - Estructura migrada y normalizada
         const store = {
             orders: JSON.parse(localStorage.getItem('dtf_orders')) || [],
-            quotes: JSON.parse(localStorage.getItem('dtf_quotes')) || [],
+            quotes: [],
             
             // ============================================================
             // NUEVO: Inventario separado en Supplies (Insumos) y Products (Productos)
@@ -542,8 +542,7 @@
             saveStore: () => {
                 // Guardar cada entidad en su propia clave para facilitar migración
                 localStorage.setItem('dtf_orders', JSON.stringify(store.orders));
-                localStorage.setItem('dtf_quotes', JSON.stringify(store.quotes));
-                localStorage.setItem('dtf_supplies', JSON.stringify(store.supplies));
+                                localStorage.setItem('dtf_supplies', JSON.stringify(store.supplies));
                 localStorage.setItem('dtf_products', JSON.stringify(store.products));
                 localStorage.setItem('dtf_categories', JSON.stringify(store.categories));
                 localStorage.setItem('dtf_clients', JSON.stringify(store.clients));
@@ -736,21 +735,104 @@
                 };
             },
 
-            async loadAll() {
+            
+            toQuote(row) {
+                return {
+                    id: row.id,
+                    clientId: row.client_id,
+                    clientName: row.client_name || '',
+                    clientPhone: row.client_phone || '',
+                    status: row.status || 'pendiente',
+                    items: Array.isArray(row.items) ? row.items : [],
+                    subtotal: Number(row.subtotal || 0),
+                    discount: Number(row.discount || 0),
+                    total: Number(row.total || 0),
+                    notes: row.notes || '',
+                    validUntil: row.valid_until,
+                    convertedOrderId: row.converted_order_id || null,
+                    createdAt: row.created_at,
+                    updatedAt: row.updated_at
+                };
+            },
+
+            quoteToDb(quote) {
+                return {
+                    id: String(quote.id || utils.generateId()),
+                    client_id: quote.clientId || null,
+                    client_name: quote.clientName || '',
+                    client_phone: quote.clientPhone || '',
+                    status: quote.status || 'pendiente',
+                    items: Array.isArray(quote.items) ? quote.items : [],
+                    subtotal: Number(quote.subtotal || 0),
+                    discount: Number(quote.discount || 0),
+                    total: Number(quote.total || 0),
+                    notes: quote.notes || '',
+                    valid_until: quote.validUntil || null,
+                    converted_order_id: quote.convertedOrderId || null,
+                    created_at: quote.createdAt || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+            },
+
+            async saveQuote(quote) {
+                const idx = store.quotes.findIndex(q => q.id === quote.id);
+
+                if (idx >= 0) {
+                    store.quotes[idx] = quote;
+                } else {
+                    store.quotes.push(quote);
+                }
+
+                if (!this.enabled || !window.supabaseClient) {
+                    utils.saveStore();
+                    return quote;
+                }
+
+                const payload = this.quoteToDb(quote);
+
+                const { data, error } = await supabaseClient
+                    .from('quotes')
+                    .upsert(payload, { onConflict: 'id' })
+                    .select('*')
+                    .single();
+
+                if (error) {
+                    console.error('Error guardando quote:', error);
+                    throw error;
+                }
+
+                const saved = this.toQuote(data);
+
+                const savedIdx = store.quotes.findIndex(q => q.id === saved.id);
+
+                if (savedIdx >= 0) {
+                    store.quotes[savedIdx] = saved;
+                }
+
+                utils.saveStore();
+
+                return saved;
+            },
+
+async loadAll() {
                 if (!window.supabaseClient) return;
                 this.enabled = true;
                 try {
-                    const [clientsRes, productsRes, ordersRes, financeRes] = await Promise.all([
+                    const [clientsRes, productsRes, ordersRes, financeRes, quotesRes] = await Promise.all([
                         supabaseClient.from('clients').select('*').order('name', { ascending: true }),
                         supabaseClient.from('products').select('*').order('name', { ascending: true }),
                         supabaseClient.from('orders').select('*').order('created_at', { ascending: false }),
-                        supabaseClient.from('finance_movements').select('*').order('created_at', { ascending: false })
+                        supabaseClient.from('finance_movements').select('*').order('created_at', { ascending: false }),
+                        supabaseClient.from('quotes').select('*').order('created_at', { ascending: false })
                     ]);
 
                     if (!clientsRes.error && Array.isArray(clientsRes.data)) store.clients = clientsRes.data.map(r => this.toClient(r));
                     if (!productsRes.error && Array.isArray(productsRes.data)) store.products = productsRes.data.map(r => this.toProduct(r));
                     if (!ordersRes.error && Array.isArray(ordersRes.data)) store.orders = ordersRes.data.map(r => this.toOrder(r));
                     if (!financeRes.error && Array.isArray(financeRes.data)) store.finanzas = financeRes.data.map(r => this.toFinance(r));
+                    if (!quotesRes.error && Array.isArray(quotesRes.data)) {
+                        store.quotes = quotesRes.data.map(r => this.toQuote(r));
+                    }
 
                     utils.saveStore();
                 } catch (error) {
