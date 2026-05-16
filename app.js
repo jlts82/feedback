@@ -629,13 +629,38 @@
                     id: row.id,
                     name: row.name || row.full_name || 'Cliente',
                     phone: row.phone || '',
+                    phone2: row.phone2 || '',
                     email: row.email || '',
-                    type: row.type || 'regular',
+                    type: row.type || 'menudeo',
                     discount: Number(row.discount || 0),
-                    address: row.address || '',
+                    address: row.address || {},
                     rfc: row.rfc || '',
+                    regimenFiscal: row.regimen_fiscal || row.regimenFiscal || '',
+                    usoCFDI: row.uso_cfdi || row.usoCFDI || '',
+                    notes: row.notes || '',
+                    designs: row.designs || [],
                     createdAt: row.created_at,
                     updatedAt: row.updated_at
+                };
+            },
+
+            clientToDb(client) {
+                return {
+                    id: client.id,
+                    name: client.name || '',
+                    phone: client.phone || '',
+                    phone2: client.phone2 || '',
+                    email: client.email || '',
+                    type: client.type || 'menudeo',
+                    discount: Number(client.discount || 0),
+                    rfc: client.rfc || '',
+                    regimen_fiscal: client.regimenFiscal || '',
+                    uso_cfdi: client.usoCFDI || '',
+                    address: client.address || {},
+                    notes: client.notes || '',
+                    designs: client.designs || [],
+                    created_at: client.createdAt || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
                 };
             },
 
@@ -673,17 +698,35 @@
                 };
             },
 
+            normalizeDeliveryType(value) {
+                const raw = String(value || 'local').toLowerCase().trim();
+                const map = {
+                    local: 'local',
+                    'entrega en local': 'local',
+                    tienda: 'local',
+                    pickup: 'pickup',
+                    recoge: 'pickup',
+                    'recoge cliente': 'pickup',
+                    shipping: 'shipping',
+                    envio: 'shipping',
+                    envío: 'shipping',
+                    paqueteria: 'shipping',
+                    paquetería: 'shipping'
+                };
+                return map[raw] || 'local';
+            },
+
             orderToDb(order) {
                 return {
-                    id: order.id,
-                    client_id: order.clientId,
-                    client_name: order.clientName,
+                    id: String(order.id || utils.generateId()),
+                    client_id: order.clientId || null,
+                    client_name: order.clientName || '',
                     client_phone: order.clientPhone || '',
-                    status: order.status,
-                    delivery_type: order.deliveryType || 'local',
+                    status: order.status || 'recibido',
+                    delivery_type: this.normalizeDeliveryType(order.deliveryType),
                     delivery_address: order.deliveryAddress || '',
                     partial_delivery: !!order.partialDelivery,
-                    items: order.items || [],
+                    items: Array.isArray(order.items) ? order.items : [],
                     description: order.description || '',
                     total: Number(order.total || 0),
                     stock_processed: !!order.stockProcessed,
@@ -716,29 +759,112 @@
                 }
             },
 
+            async ensureClientInSupabase(clientId) {
+                if (!this.enabled || !window.supabaseClient || !clientId) return false;
+                const localClient = store.clients.find(c => c.id === clientId);
+                if (!localClient) return false;
+
+                const { data: existing, error: lookupError } = await supabaseClient
+                    .from('clients')
+                    .select('id')
+                    .eq('id', clientId)
+                    .maybeSingle();
+
+                if (!lookupError && existing) return true;
+
+                try {
+                    await this.saveClient(localClient);
+                    return true;
+                } catch (error) {
+                    console.error('V16 error sincronizando cliente antes de pedido:', error, localClient);
+                    throw error;
+                }
+            },
+
+            async migrateLocalClientsIfNeeded() {
+                if (!this.enabled || !window.supabaseClient) return;
+                try {
+                    const localClients = JSON.parse(localStorage.getItem('dtf_clients') || '[]');
+                    if (!Array.isArray(localClients) || localClients.length === 0) return;
+
+                    const { data: remoteClients, error } = await supabaseClient
+                        .from('clients')
+                        .select('id')
+                        .limit(1);
+
+                    if (error) return;
+                    if (Array.isArray(remoteClients) && remoteClients.length > 0) return;
+
+                    console.info('V16 migrando clientes locales a Supabase:', localClients.length);
+                    for (const client of localClients) {
+                        if (client && client.id && client.name) {
+                            await this.saveClient(client);
+                        }
+                    }
+                    await this.loadAll();
+                } catch (error) {
+                    console.warn('V16 no se pudieron migrar clientes locales:', error.message || error);
+                }
+            },
+
+            async saveClient(client) {
+                const idx = store.clients.findIndex(c => c.id === client.id);
+                if (idx >= 0) store.clients[idx] = client; else store.clients.push(client);
+
+                if (!this.enabled || !window.supabaseClient) {
+                    utils.saveStore();
+                    console.warn('V16: Supabase no disponible, cliente guardado temporalmente en localStorage:', client.id);
+                    return client;
+                }
+
+                const payload = this.clientToDb(client);
+                const { data, error } = await supabaseClient
+                    .from('clients')
+                    .upsert(payload, { onConflict: 'id' })
+                    .select('*')
+                    .single();
+
+                if (error) {
+                    console.error('V16 error guardando cliente en Supabase:', error, payload);
+                    throw error;
+                }
+
+                const savedClient = this.toClient(data);
+                const savedIdx = store.clients.findIndex(c => c.id === savedClient.id);
+                if (savedIdx >= 0) store.clients[savedIdx] = savedClient;
+                utils.saveStore();
+                console.info('V16 cliente guardado en Supabase:', savedClient.id);
+                return savedClient;
+            },
+
             async saveOrder(order) {
                 const idx = store.orders.findIndex(o => o.id === order.id);
                 if (idx >= 0) store.orders[idx] = order; else store.orders.push(order);
 
                 if (!this.enabled || !window.supabaseClient) {
                     utils.saveStore();
-                    console.warn('V12: Supabase no disponible, pedido guardado temporalmente en localStorage:', order.id);
+                    console.warn('V16: Supabase no disponible, pedido guardado temporalmente en localStorage:', order.id);
                     return order;
                 }
 
                 const payload = this.orderToDb(order);
-                const { data, error } = await supabaseClient
-                    .from('orders')
-                    .upsert(payload, { onConflict: 'id' })
-                    .select('id,status,total,stock_processed,finance_processed')
-                    .single();
+
+                // V16: guardado robusto por RPC. La función valida cliente, normaliza entrega
+                // y evita 409 por FK cuando el cliente aún no existe en Supabase.
+                const { data, error } = await supabaseClient.rpc('save_order_safe', {
+                    p_order: payload
+                });
 
                 if (error) {
-                    console.error('V12 error guardando pedido en Supabase:', error, payload);
+                    console.error('V16 error guardando pedido en Supabase:', error, payload);
                     throw error;
                 }
 
-                console.info('V12 pedido guardado en Supabase:', data);
+                if (data && data.client_id === null) {
+                    order.clientId = null;
+                }
+
+                console.info('V16 pedido guardado en Supabase:', data);
                 utils.saveStore();
                 return order;
             },
@@ -748,7 +874,9 @@
                     await this.processDeliveredOrder(order);
                 }
                 if (this.enabled && window.supabaseClient) {
-                    const { error } = await supabaseClient.from('orders').upsert(this.orderToDb(order), { onConflict: 'id' });
+                    const { error } = await supabaseClient.rpc('save_order_safe', {
+                        p_order: this.orderToDb(order)
+                    });
                     if (error) throw error;
                 }
                 utils.saveStore();
@@ -758,7 +886,7 @@
                 if (order.stockProcessed && order.financeProcessed) return;
 
                 if (this.enabled && window.supabaseClient) {
-                    // V12: flujo productivo en Supabase con RPC atómico.
+                    // V16: flujo productivo en Supabase con RPC atómico.
                     // La función inserta/actualiza el pedido, descuenta stock, registra movimiento de inventario
                     // y crea el ingreso financiero en una sola operación protegida contra duplicados.
                     const { data, error } = await supabaseClient.rpc('process_order_delivery', {
@@ -766,7 +894,7 @@
                     });
 
                     if (error) {
-                        console.error('V12 error procesando entrega en Supabase:', error, order);
+                        console.error('V16 error procesando entrega en Supabase:', error, order);
                         throw error;
                     }
 
@@ -793,7 +921,7 @@
                     }
 
                     utils.notify(`Entrega procesada: stock descontado e ingreso registrado (${utils.formatCurrency(Number(order.total || 0))})`, 'success');
-                    console.info('V12 entrega procesada:', result);
+                    console.info('V16 entrega procesada:', result);
                     return;
                 }
 
@@ -4132,7 +4260,11 @@
         }
 
         // Quick Actions
-        function showQuickOrder(preselectedDesign = null) {
+        async function showQuickOrder(preselectedDesign = null) {
+            if (window.supabaseClient && supabaseData.enabled) {
+                await supabaseData.migrateLocalClientsIfNeeded();
+                await supabaseData.loadAll();
+            }
             const modal = document.getElementById('modal-content');
             modal.innerHTML = `
                 <div class="p-6">
@@ -4448,7 +4580,7 @@
                 await supabaseData.loadAll();
                 router.refresh();
             } catch (error) {
-                utils.notify('No se pudo guardar el pedido: ' + error.message, 'error');
+                utils.notify('No se pudo guardar el pedido: ' + (error.message || error.details || error.hint || JSON.stringify(error)), 'error');
             }
         }
 
@@ -4958,7 +5090,7 @@
             }
         }
 
-        function handleClientSubmit(e) {
+        async function handleClientSubmit(e) {
             e.preventDefault();
             
             // Recopilar datos del formulario
@@ -5008,13 +5140,16 @@
                 return;
             }
 
-            // Guardar cliente
-            store.clients.push(clientData);
-            utils.saveStore();
-            
-            utils.notify(`Cliente "${clientData.name}" registrado exitosamente`, 'success');
-            closeModal();
-            router.refresh();
+            // Guardar cliente en Supabase y refrescar catálogo antes de crear pedidos
+            try {
+                await supabaseData.saveClient(clientData);
+                utils.notify(`Cliente "${clientData.name}" registrado exitosamente`, 'success');
+                closeModal();
+                await supabaseData.loadAll();
+                router.refresh();
+            } catch (error) {
+                utils.notify('No se pudo guardar el cliente: ' + error.message, 'error');
+            }
         }
 
         function formatAddress(client) {
