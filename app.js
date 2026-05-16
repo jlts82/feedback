@@ -542,7 +542,6 @@
             saveStore: () => {
                 // Guardar cada entidad en su propia clave para facilitar migración
                 localStorage.setItem('dtf_orders', JSON.stringify(store.orders));
-                localStorage.setItem('dtf_quotes', JSON.stringify(store.quotes));
                 localStorage.setItem('dtf_supplies', JSON.stringify(store.supplies));
                 localStorage.setItem('dtf_products', JSON.stringify(store.products));
                 localStorage.setItem('dtf_categories', JSON.stringify(store.categories));
@@ -736,21 +735,119 @@
                 };
             },
 
+
+            toQuote(row) {
+                const rawItems = Array.isArray(row.items) ? row.items : [];
+                const firstItem = rawItems[0] || {};
+                const status = row.status || 'pendiente';
+                const convertedOrderId = row.converted_order_id || null;
+                return {
+                    id: row.id,
+                    clientId: row.client_id,
+                    clientName: row.client_name || '',
+                    clientPhone: row.client_phone || '',
+                    productId: firstItem.productId || firstItem.product_id || firstItem.id || '',
+                    productName: firstItem.productName || firstItem.product_name || firstItem.name || 'Producto no especificado',
+                    qty: Number(firstItem.qty || firstItem.quantity || 0),
+                    size: firstItem.size || '',
+                    colors: firstItem.colors || '',
+                    status,
+                    items: rawItems,
+                    subtotal: Number(row.subtotal || row.total || 0),
+                    discount: Number(row.discount || 0),
+                    total: Number(row.total || 0),
+                    notes: row.notes || '',
+                    expiresAt: row.valid_until || row.expires_at || null,
+                    validUntil: row.valid_until || row.expires_at || null,
+                    convertedToOrder: status === 'convertida' || !!convertedOrderId,
+                    orderId: convertedOrderId,
+                    convertedOrderId,
+                    createdAt: row.created_at,
+                    updatedAt: row.updated_at
+                };
+            },
+
+            quoteToDb(quote) {
+                const quoteItems = Array.isArray(quote.items) && quote.items.length
+                    ? quote.items
+                    : [{
+                        productId: quote.productId || 'custom',
+                        productName: quote.productName || 'Producto no especificado',
+                        qty: Number(quote.qty || 0),
+                        quantity: Number(quote.qty || 0),
+                        size: quote.size || '',
+                        colors: quote.colors || '',
+                        price: Number(quote.qty || 0) > 0 ? Number(quote.total || 0) / Number(quote.qty || 1) : Number(quote.total || 0)
+                    }];
+
+                const expires = quote.validUntil || quote.expiresAt || null;
+                const validDate = expires ? String(expires).slice(0, 10) : null;
+
+                return {
+                    id: String(quote.id || utils.generateId()),
+                    client_id: quote.clientId || null,
+                    client_name: quote.clientName || '',
+                    client_phone: quote.clientPhone || '',
+                    status: quote.convertedToOrder ? 'convertida' : (quote.status || 'pendiente'),
+                    items: quoteItems,
+                    subtotal: Number(quote.subtotal || quote.total || 0),
+                    discount: Number(quote.discount || 0),
+                    total: Number(quote.total || 0),
+                    notes: quote.notes || '',
+                    valid_until: validDate,
+                    converted_order_id: quote.orderId || quote.convertedOrderId || null,
+                    created_at: quote.createdAt || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+            },
+
+            async saveQuote(quote) {
+                const idx = store.quotes.findIndex(q => q.id === quote.id);
+                if (idx >= 0) store.quotes[idx] = quote; else store.quotes.push(quote);
+
+                if (!this.enabled || !window.supabaseClient) {
+                    utils.saveStore();
+                    console.warn('V20: Supabase no disponible, cotización temporal solo en memoria:', quote.id);
+                    return quote;
+                }
+
+                const payload = this.quoteToDb(quote);
+                const { data, error } = await supabaseClient
+                    .from('quotes')
+                    .upsert(payload, { onConflict: 'id' })
+                    .select('*')
+                    .single();
+
+                if (error) {
+                    console.error('V20 error guardando cotización en Supabase:', error, payload);
+                    throw error;
+                }
+
+                const savedQuote = this.toQuote(data);
+                const savedIdx = store.quotes.findIndex(q => q.id === savedQuote.id);
+                if (savedIdx >= 0) store.quotes[savedIdx] = savedQuote; else store.quotes.push(savedQuote);
+                utils.saveStore();
+                console.info('V20 cotización guardada en Supabase:', savedQuote.id);
+                return savedQuote;
+            },
+
             async loadAll() {
                 if (!window.supabaseClient) return;
                 this.enabled = true;
                 try {
-                    const [clientsRes, productsRes, ordersRes, financeRes] = await Promise.all([
+                    const [clientsRes, productsRes, ordersRes, financeRes, quotesRes] = await Promise.all([
                         supabaseClient.from('clients').select('*').order('name', { ascending: true }),
                         supabaseClient.from('products').select('*').order('name', { ascending: true }),
                         supabaseClient.from('orders').select('*').order('created_at', { ascending: false }),
-                        supabaseClient.from('finance_movements').select('*').order('created_at', { ascending: false })
+                        supabaseClient.from('finance_movements').select('*').order('created_at', { ascending: false }),
+                        supabaseClient.from('quotes').select('*').order('created_at', { ascending: false })
                     ]);
 
                     if (!clientsRes.error && Array.isArray(clientsRes.data)) store.clients = clientsRes.data.map(r => this.toClient(r));
                     if (!productsRes.error && Array.isArray(productsRes.data)) store.products = productsRes.data.map(r => this.toProduct(r));
                     if (!ordersRes.error && Array.isArray(ordersRes.data)) store.orders = ordersRes.data.map(r => this.toOrder(r));
                     if (!financeRes.error && Array.isArray(financeRes.data)) store.finanzas = financeRes.data.map(r => this.toFinance(r));
+                    if (!quotesRes.error && Array.isArray(quotesRes.data)) store.quotes = quotesRes.data.map(r => this.toQuote(r));
 
                     utils.saveStore();
                 } catch (error) {
@@ -4771,7 +4868,7 @@
             return total;
         }
 
-        function handleQuoteSubmit(e) {
+        async function handleQuoteSubmit(e) {
             e.preventDefault();
             
             const clientId = document.getElementById('quoteClient').value;
@@ -4815,12 +4912,12 @@
                 await supabaseData.loadAll();
                 router.refresh();
             } catch (error) {
-                console.error(error);
-                utils.notify('Error guardando cotización', 'error');
+                console.error('V20 error guardando cotización:', error);
+                utils.notify('No se pudo guardar la cotización: ' + (error.message || error.details || JSON.stringify(error)), 'error');
             }
         }
 
-        function quoteToOrder(quoteId) {
+        async function quoteToOrder(quoteId) {
             const quote = store.quotes.find(q => q.id === quoteId);
             if (!quote) return;
             
@@ -4846,20 +4943,17 @@
                 
                 try {
                     await supabaseData.saveOrder(order);
-
                     quote.convertedToOrder = true;
                     quote.orderId = order.id;
-
+                    quote.convertedOrderId = order.id;
+                    quote.status = 'convertida';
                     await supabaseData.saveQuote(quote);
-
                     utils.notify('Cotización convertida a pedido exitosamente', 'success');
-
                     await supabaseData.loadAll();
-
                     router.navigate('orders');
                 } catch (error) {
-                    console.error(error);
-                    utils.notify('Error convirtiendo cotización', 'error');
+                    console.error('V20 error convirtiendo cotización:', error);
+                    utils.notify('No se pudo convertir la cotización: ' + (error.message || error.details || JSON.stringify(error)), 'error');
                 }
             }
         }
