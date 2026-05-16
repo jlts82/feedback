@@ -2668,8 +2668,8 @@
                 return designs.map(design => `
                     <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden group cursor-pointer hover:shadow-lg transition-all">
                         <div class="aspect-square bg-gray-100 flex items-center justify-center relative overflow-hidden">
-                            ${design.imageData ? 
-                                `<img src="${design.imageData}" class="w-full h-full object-cover design-preview" alt="${design.name}">` :
+                            ${design.imageUrl || design.fileUrl ? 
+                                `<img src="${design.imageUrl || design.fileUrl}" class="w-full h-full object-cover design-preview" alt="${design.name}">` :
                                 `<i class="fas fa-image text-4xl text-gray-300"></i>`
                             }
                             <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 gap-2">
@@ -2720,8 +2720,8 @@
                         </div>
                         
                         <div class="mb-6">
-                            ${design.imageData ? 
-                                `<img src="${design.imageData}" class="w-full max-h-96 object-contain rounded-lg border border-gray-200" alt="${design.name}">` :
+                            ${design.imageUrl || design.fileUrl ? 
+                                `<img src="${design.imageUrl || design.fileUrl}" class="w-full max-h-96 object-contain rounded-lg border border-gray-200" alt="${design.name}">` :
                                 '<div class="w-full h-64 bg-gray-100 flex items-center justify-center rounded-lg"><i class="fas fa-image text-6xl text-gray-300"></i></div>'
                             }
                         </div>
@@ -5536,13 +5536,13 @@
             if (file.type.startsWith('image/')) {
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    design.imageData = e.target.result;
+                    design.imageUrl || design.fileUrl = e.target.result;
                     finishDesignUpload(design);
                 };
                 reader.readAsDataURL(file);
             } else {
                 // Para otros archivos, usar icono genérico
-                design.imageData = null;
+                design.imageUrl || design.fileUrl = null;
                 design.iconUrl = getFileIcon(file.name);
                 finishDesignUpload(design);
             }
