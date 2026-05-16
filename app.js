@@ -852,13 +852,19 @@
                     id: row.id,
                     name: row.name || '',
                     clientId: row.client_id || null,
-                    clientName: row.client_name || 'Sin cliente',
+                    clientName: row.client_name || 'Sin cliente específico',
+
                     fileName: row.file_name || '',
-                    fileSize: row.file_size || '',
+                    fileSize: row.file_size || 0,
                     fileType: row.file_type || '',
-                    imageData: row.image_data || null,
-                    iconUrl: row.icon_url || '',
+
+                    imageUrl: row.image_url || '',
+                    fileUrl: row.file_url || '',
+
+                    storagePath: row.storage_path || '',
                     notes: row.notes || '',
+                    description: row.description || '',
+
                     createdAt: row.created_at,
                     updatedAt: row.updated_at
                 };
@@ -867,15 +873,23 @@
             designToDb(design) {
                 return {
                     id: String(design.id || utils.generateId()),
+
                     name: design.name || '',
+
                     client_id: design.clientId || null,
-                    client_name: design.clientName || '',
+                    client_name: design.clientName || 'Sin cliente específico',
+
                     file_name: design.fileName || '',
-                    file_size: design.fileSize || '',
+                    file_size: Number(design.fileSize || 0),
                     file_type: design.fileType || '',
-                    image_data: design.imageData || null,
-                    icon_url: design.iconUrl || '',
+
+                    image_url: design.imageUrl || '',
+                    file_url: design.fileUrl || '',
+
+                    storage_path: design.storagePath || '',
                     notes: design.notes || '',
+                    description: design.description || '',
+
                     created_at: design.createdAt || new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 };
