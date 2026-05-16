@@ -983,13 +983,68 @@
 
             async saveDesign(design) {
                 if (!this.enabled || !window.supabaseClient) throw new Error('Supabase no disponible');
-                const payload = this.designToDb(design);
+
+                let imageUrl = design.imageUrl || '';
+                let fileUrl = design.fileUrl || '';
+                let storagePath = design.storagePath || '';
+
+                if (design.imageData && String(design.imageData).startsWith('data:')) {
+                    const fileExt = (design.fileType || 'image/png').split('/').pop().replace('jpeg', 'jpg');
+                    const safeName = String(design.fileName || design.name || 'design')
+                        .replace(/[^a-zA-Z0-9._-]/g, '_')
+                        .slice(0, 80);
+                    const fileName = `${Date.now()}_${design.id}_${safeName || 'design'}.${fileExt}`;
+                    const base64Data = design.imageData.split(',')[1];
+                    const byteCharacters = atob(base64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+
+                    for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }
+
+                    const byteArray = new Uint8Array(byteNumbers);
+
+                    const { error: uploadError } = await supabaseClient
+                        .storage
+                        .from('designs')
+                        .upload(fileName, byteArray, {
+                            contentType: design.fileType || 'image/png',
+                            upsert: true
+                        });
+
+                    if (uploadError) {
+                        console.error('Error subiendo diseño a Storage:', uploadError);
+                        throw uploadError;
+                    }
+
+                    const { data: publicData } = supabaseClient
+                        .storage
+                        .from('designs')
+                        .getPublicUrl(fileName);
+
+                    imageUrl = publicData.publicUrl;
+                    fileUrl = publicData.publicUrl;
+                    storagePath = fileName;
+                }
+
+                const payload = {
+                    ...this.designToDb(design),
+                    image_url: imageUrl,
+                    file_url: fileUrl,
+                    storage_path: storagePath
+                };
+
                 const { data, error } = await supabaseClient
                     .from('designs')
                     .upsert(payload, { onConflict: 'id' })
                     .select('*')
                     .single();
-                if (error) throw error;
+
+                if (error) {
+                    console.error('ERROR SUPABASE DESIGN:', error, payload);
+                    throw error;
+                }
+
                 const saved = this.toDesign(data);
                 const idx = store.designs.findIndex(d => d.id === saved.id);
                 if (idx >= 0) store.designs[idx] = saved; else store.designs.push(saved);
@@ -5536,13 +5591,13 @@
             if (file.type.startsWith('image/')) {
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    design.imageUrl || design.fileUrl = e.target.result;
+                    design.imageData = e.target.result;
                     finishDesignUpload(design);
                 };
                 reader.readAsDataURL(file);
             } else {
                 // Para otros archivos, usar icono genérico
-                design.imageUrl || design.fileUrl = null;
+                design.imageData = null;
                 design.iconUrl = getFileIcon(file.name);
                 finishDesignUpload(design);
             }
