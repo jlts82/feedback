@@ -989,11 +989,12 @@
                 let storagePath = design.storagePath || '';
 
                 if (design.imageData && String(design.imageData).startsWith('data:')) {
-                    const fileExt = (design.fileType || 'image/png').split('/').pop().replace('jpeg', 'jpg');
+                    const mimeType = design.fileType || 'image/png';
                     const safeName = String(design.fileName || design.name || 'design')
                         .replace(/[^a-zA-Z0-9._-]/g, '_')
                         .slice(0, 80);
-                    const fileName = `${Date.now()}_${design.id}_${safeName || 'design'}.${fileExt}`;
+                    const storageFileName = `${Date.now()}_${design.id}_${safeName || 'design'}`;
+
                     const base64Data = design.imageData.split(',')[1];
                     const byteCharacters = atob(base64Data);
                     const byteNumbers = new Array(byteCharacters.length);
@@ -1006,9 +1007,9 @@
 
                     const { error: uploadError } = await supabaseClient
                         .storage
-                        .from('designs')
-                        .upload(fileName, byteArray, {
-                            contentType: design.fileType || 'image/png',
+                        .from('Designs')
+                        .upload(storageFileName, byteArray, {
+                            contentType: mimeType,
                             upsert: true
                         });
 
@@ -1019,19 +1020,20 @@
 
                     const { data: publicData } = supabaseClient
                         .storage
-                        .from('designs')
-                        .getPublicUrl(fileName);
+                        .from('Designs')
+                        .getPublicUrl(storageFileName);
 
                     imageUrl = publicData.publicUrl;
                     fileUrl = publicData.publicUrl;
-                    storagePath = fileName;
+                    storagePath = storageFileName;
                 }
 
                 const payload = {
                     ...this.designToDb(design),
                     image_url: imageUrl,
                     file_url: fileUrl,
-                    storage_path: storagePath
+                    storage_path: storagePath,
+                    file_size: Number(design.fileSize || 0)
                 };
 
                 const { data, error } = await supabaseClient
@@ -5581,7 +5583,7 @@
                 clientId: clientId || null,
                 clientName: client ? client.name : 'Sin cliente',
                 fileName: file.name,
-                fileSize: formatFileSize(file.size),
+                fileSize: file.size,
                 fileType: file.type,
                 notes: notes,
                 createdAt: new Date().toISOString()
@@ -5597,7 +5599,7 @@
                 reader.readAsDataURL(file);
             } else {
                 // Para otros archivos, usar icono genérico
-                design.imageData = null;
+                design.imageData = getFileIcon(file.name);
                 design.iconUrl = getFileIcon(file.name);
                 finishDesignUpload(design);
             }
