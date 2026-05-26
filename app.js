@@ -988,69 +988,71 @@
                 let fileUrl = design.fileUrl || '';
                 let storagePath = design.storagePath || '';
 
-                if (design.imageData && String(design.imageData).startsWith('data:')) {
-                    const mimeType = design.fileType || 'image/png';
-                    const safeName = String(design.fileName || design.name || 'design')
-                        .replace(/[^a-zA-Z0-9._-]/g, '_')
-                        .slice(0, 80);
-                    const storageFileName = `${Date.now()}_${design.id}_${safeName || 'design'}`;
+                try {
+                    if (design.imageData && String(design.imageData).startsWith('data:')) {
+                        const fileExt = (design.fileType || 'png').split('/').pop();
+                        const fileName = `${Date.now()}_${design.id}.${fileExt}`;
 
-                    const base64Data = design.imageData.split(',')[1];
-                    const byteCharacters = atob(base64Data);
-                    const byteNumbers = new Array(byteCharacters.length);
+                        const base64Data = design.imageData.split(',')[1];
+                        const byteCharacters = atob(base64Data);
+                        const byteNumbers = new Array(byteCharacters.length);
 
-                    for (let i = 0; i < byteCharacters.length; i++) {
-                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        for (let i = 0; i < byteCharacters.length; i++) {
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }
+
+                        const byteArray = new Uint8Array(byteNumbers);
+
+                        const { error: uploadError } = await supabaseClient
+                            .storage
+                            .from('designs')
+                            .upload(fileName, byteArray, {
+                                contentType: design.fileType || 'image/png',
+                                upsert: true
+                            });
+
+                        if (!uploadError) {
+                            const { data: publicData } = supabaseClient
+                                .storage
+                                .from('designs')
+                                .getPublicUrl(fileName);
+
+                            imageUrl = publicData.publicUrl;
+                            fileUrl = publicData.publicUrl;
+                            storagePath = fileName;
+                        }
                     }
 
-                    const byteArray = new Uint8Array(byteNumbers);
+                    const payload = {
+                        ...this.designToDb(design),
+                        image_url: imageUrl,
+                        file_url: fileUrl,
+                        storage_path: storagePath
+                    };
 
-                    const { error: uploadError } = await supabaseClient
-                        .storage
-                        .from('Designs')
-                        .upload(storageFileName, byteArray, {
-                            contentType: mimeType,
-                            upsert: true
-                        });
+                    const { data, error } = await supabaseClient
+                        .from('designs')
+                        .upsert(payload, { onConflict: 'id' })
+                        .select('*')
+                        .single();
 
-                    if (uploadError) {
-                        console.error('Error subiendo diseño a Storage:', uploadError);
-                        throw uploadError;
+                    if (error) throw error;
+
+                    const saved = this.toDesign(data);
+                    const idx = store.designs.findIndex(d => d.id === saved.id);
+
+                    if (idx >= 0) {
+                        store.designs[idx] = saved;
+                    } else {
+                        store.designs.push(saved);
                     }
 
-                    const { data: publicData } = supabaseClient
-                        .storage
-                        .from('Designs')
-                        .getPublicUrl(storageFileName);
+                    return saved;
 
-                    imageUrl = publicData.publicUrl;
-                    fileUrl = publicData.publicUrl;
-                    storagePath = storageFileName;
+                } catch (err) {
+                    console.error('saveDesign error:', err);
+                    throw err;
                 }
-
-                const payload = {
-                    ...this.designToDb(design),
-                    image_url: imageUrl,
-                    file_url: fileUrl,
-                    storage_path: storagePath,
-                    file_size: Number(design.fileSize || 0)
-                };
-
-                const { data, error } = await supabaseClient
-                    .from('designs')
-                    .upsert(payload, { onConflict: 'id' })
-                    .select('*')
-                    .single();
-
-                if (error) {
-                    console.error('ERROR SUPABASE DESIGN:', error, payload);
-                    throw error;
-                }
-
-                const saved = this.toDesign(data);
-                const idx = store.designs.findIndex(d => d.id === saved.id);
-                if (idx >= 0) store.designs[idx] = saved; else store.designs.push(saved);
-                return saved;
             },
 
             async loadAll() {
@@ -1574,7 +1576,7 @@
                                             <tr>
                                                 <td class="px-4 py-3 text-sm text-gray-800 font-medium">${item.productName || 'Producto personalizado'}</td>
                                                 <td class="px-4 py-3 text-sm text-gray-600">${item.description || '-'}</td>
-                                                <td class="px-4 py-3 text-sm text-gray-600 text-center">${item.quantity}</td>
+                                                <td class="px-4 py-3 text-sm text-gray-600 text-center">${formatQuantity(item.quantity)} ${item.unit || ""}</td>
                                                 <td class="px-4 py-3 text-sm text-gray-600 text-right">${utils.formatCurrency(item.price)}</td>
                                                 <td class="px-4 py-3 text-sm font-medium text-gray-900 text-right">${utils.formatCurrency(item.quantity * item.price)}</td>
                                             </tr>
@@ -3418,7 +3420,7 @@
                                                 <div class="col-span-2">
                                                     <label class="block text-xs text-gray-600 mb-1">Cantidad</label>
                                                     <div class="flex items-center gap-1">
-                                                        <input type="number" class="edit-item-qty w-full px-2 py-2 border border-gray-300 rounded text-sm" value="${item.quantity}" min="0.01" step="0.01" onchange="calculateEditOrderTotal()">
+                                                        <input type="text" inputmode="decimal" class="edit-item-qty w-full px-2 py-2 border border-gray-300 rounded text-sm" value="${formatQuantity(item.quantity)}" onchange="calculateEditOrderTotal()" oninput="calculateEditOrderTotal()">
                                                     </div>
                                                 </div>
                                                 <div class="col-span-2">
@@ -4578,6 +4580,22 @@
             return options;
         }
 
+
+        // Decimal helper para cantidades en metros/m2/cm.
+        // Acepta "0.5" y "0,5" sin convertir a entero.
+        function parseDecimalInput(value) {
+            if (value === null || value === undefined) return 0;
+            const normalized = String(value).trim().replace(',', '.');
+            const parsed = Number(normalized);
+            return Number.isFinite(parsed) ? parsed : 0;
+        }
+
+        function formatQuantity(value) {
+            const n = Number(value || 0);
+            if (!Number.isFinite(n)) return '0';
+            return String(n).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+        }
+
         // Quick Actions
         async function showQuickOrder(preselectedDesign = null) {
             if (window.supabaseClient && supabaseData.enabled) {
@@ -4681,7 +4699,7 @@
                         <div class="md:col-span-2">
                             <label class="block text-xs text-gray-600 mb-1">Cantidad *</label>
                             <div class="flex items-center gap-1">
-                                <input type="number" class="item-qty w-full px-3 py-2 border border-gray-300 rounded text-sm" value="1" min="0.01" step="0.01" required onchange="calculateOrderTotal()">
+                                <input type="text" inputmode="decimal" class="item-qty w-full px-3 py-2 border border-gray-300 rounded text-sm" value="1" required oninput="calculateOrderTotal()" onchange="calculateOrderTotal()">
                                 <span class="item-unit text-xs text-gray-500 whitespace-nowrap">pza</span>
                             </div>
                         </div>
@@ -4719,7 +4737,7 @@
             
             if (option && option.value) {
                 const price = parseFloat(option.dataset.price) || 0;
-                const stock = parseFloat(option.dataset.stock) || 0;
+                const stock = parseDecimalInput(option.dataset.stock);
                 const unit = option.dataset.unit || 'pza';
                 const name = option.dataset.name || '';
                 
@@ -4733,7 +4751,7 @@
                     const qtyInput = itemRow.querySelector('.item-qty');
                     qtyInput.max = stock;
                     qtyInput.onchange = function() {
-                        if (parseFloat(this.value) > stock) {
+                        if (parseDecimalInput(this.value) > stock) {
                             utils.notify(`Stock insuficiente. Máximo disponible: ${stock} ${unit}`, 'warning');
                             this.value = stock;
                         }
@@ -4755,8 +4773,8 @@
         function calculateOrderTotal() {
             let total = 0;
             document.querySelectorAll('.order-item').forEach(item => {
-                const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
-                const price = parseFloat(item.querySelector('.item-price').value) || 0;
+                const qty = parseDecimalInput(item.querySelector('.item-qty').value);
+                const price = parseDecimalInput(item.querySelector('.item-price').value);
                 total += qty * price;
             });
 
@@ -4823,8 +4841,8 @@
                 const productId = productSelect.value;
                 const option = productSelect.selectedOptions[0];
                 const desc = item.querySelector('.item-desc').value.trim();
-                const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
-                const price = parseFloat(item.querySelector('.item-price').value) || 0;
+                const qty = parseDecimalInput(item.querySelector('.item-qty').value);
+                const price = parseDecimalInput(item.querySelector('.item-price').value);
                 
                 if (!productId) {
                     utils.notify('Selecciona un producto para cada artículo', 'error');
@@ -4854,6 +4872,7 @@
                             productName: product.name,
                             description: desc,
                             quantity: qty,
+                            unit: product.unit || option.dataset.unit || 'pieza',
                             price: price
                         });
                     }
@@ -4863,6 +4882,7 @@
                         productName: 'Personalizado',
                         description: desc || 'Producto personalizado',
                         quantity: qty,
+                        unit: option?.dataset?.unit || 'pieza',
                         price: price
                     });
                 }
@@ -5152,8 +5172,9 @@
                         productId: quote.productId || 'custom',
                         productName: quote.productName || `Cotización #${quote.id.substr(-4)}`,
                         description: `Impresión DTF - ${quote.qty} piezas tamaño ${quote.size}`,
-                        quantity: quote.qty,
-                        price: quote.total / quote.qty
+                        quantity: Number(quote.qty || 0),
+                        unit: 'pieza',
+                        price: Number(quote.qty || 0) ? quote.total / Number(quote.qty || 1) : quote.total
                     }],
                     total: quote.total,
                     status: 'recibido',
@@ -5206,7 +5227,7 @@
                     </div>
                     <div class="col-span-2">
                         <label class="block text-xs text-gray-600 mb-1">Cantidad</label>
-                        <input type="number" class="edit-item-qty w-full px-2 py-2 border border-gray-300 rounded text-sm" value="1" min="0.01" step="0.01" onchange="calculateEditOrderTotal()">
+                        <input type="text" inputmode="decimal" class="edit-item-qty w-full px-2 py-2 border border-gray-300 rounded text-sm" value="1" onchange="calculateEditOrderTotal()" oninput="calculateEditOrderTotal()">
                     </div>
                     <div class="col-span-2">
                         <label class="block text-xs text-gray-600 mb-1">Precio unit.</label>
@@ -5233,8 +5254,8 @@
         function calculateEditOrderTotal() {
             let total = 0;
             document.querySelectorAll('.edit-order-item').forEach(item => {
-                const qty = parseFloat(item.querySelector('.edit-item-qty').value) || 0;
-                const price = parseFloat(item.querySelector('.edit-item-price').value) || 0;
+                const qty = parseDecimalInput(item.querySelector('.edit-item-qty').value);
+                const price = parseDecimalInput(item.querySelector('.edit-item-price').value);
                 total += qty * price;
             });
             const el = document.getElementById('editOrderTotal');
@@ -5254,8 +5275,8 @@
                 const productSelect = item.querySelector('.edit-item-product');
                 const productId = productSelect.value;
                 const option = productSelect.selectedOptions[0];
-                const qty = parseFloat(item.querySelector('.edit-item-qty').value) || 0;
-                const price = parseFloat(item.querySelector('.edit-item-price').value) || 0;
+                const qty = parseDecimalInput(item.querySelector('.edit-item-qty').value);
+                const price = parseDecimalInput(item.querySelector('.edit-item-price').value);
                 const desc = item.querySelector('.edit-item-desc').value.trim();
                 if (!productId || qty <= 0) return;
                 const product = store.products.find(p => p.id === productId);
@@ -5264,6 +5285,7 @@
                     productName: product ? product.name : (option?.dataset?.name || 'Personalizado'),
                     description: desc,
                     quantity: qty,
+                    unit: product ? (product.unit || option?.dataset?.unit || 'pieza') : (option?.dataset?.unit || 'pieza'),
                     price
                 });
             });
@@ -5583,7 +5605,7 @@
                 clientId: clientId || null,
                 clientName: client ? client.name : 'Sin cliente',
                 fileName: file.name,
-                fileSize: file.size,
+                fileSize: formatFileSize(file.size),
                 fileType: file.type,
                 notes: notes,
                 createdAt: new Date().toISOString()
