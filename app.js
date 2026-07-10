@@ -3638,6 +3638,7 @@
 
                             <div class="order-label">Pedido</div>
                             <div class="order-number">${escapeHtml(orderNumber)}</div>
+                            <div style="font-size:10px;font-weight:700;margin-top:2mm;margin-bottom:1mm;text-align:center;overflow-wrap:anywhere;">Cliente: ${escapeHtml(order.clientName || 'Mostrador')}</div>
 
                             <div class="separator"></div>
 
