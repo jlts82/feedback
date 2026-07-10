@@ -3574,10 +3574,20 @@
                             }
 
                             .order-number {
-                                font-size: 19px;
-                                font-weight: 900;
+                                font-size: 9px;
+                                font-weight: 700;
                                 line-height: 1.2;
                                 margin-top: 0.5mm;
+                            }
+
+                            .client-name {
+                                font-size: 12px;
+                                font-weight: 800;
+                                line-height: 1.2;
+                                margin-top: 1.5mm;
+                                margin-bottom: 1mm;
+                                text-align: center;
+                                overflow-wrap: anywhere;
                             }
 
                             .ticket-item {
@@ -3638,7 +3648,7 @@
 
                             <div class="order-label">Pedido</div>
                             <div class="order-number">${escapeHtml(orderNumber)}</div>
-                            <div style="font-size:10px;font-weight:700;margin-top:2mm;margin-bottom:1mm;text-align:center;overflow-wrap:anywhere;">Cliente: ${escapeHtml(order.clientName || 'Mostrador')}</div>
+                            <div class="client-name">${escapeHtml(order.clientName || 'Mostrador')}</div>
 
                             <div class="separator"></div>
 
