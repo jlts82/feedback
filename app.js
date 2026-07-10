@@ -428,6 +428,7 @@
             invoices: [],
             finanzas: [],
             designs: [],
+            productSupplies: [],
             config: {
                 prices: {
                     basePrice: 80,
@@ -1062,7 +1063,7 @@
                 }
                 this.enabled = true;
                 try {
-                    const [clientsRes, productsRes, suppliesRes, ordersRes, financeRes, quotesRes, designsRes, categoriesRes] = await Promise.all([
+                    const [clientsRes, productsRes, suppliesRes, ordersRes, financeRes, quotesRes, designsRes, categoriesRes, productSuppliesRes] = await Promise.all([
                         supabaseClient.from('clients').select('*').order('name', { ascending: true }),
                         supabaseClient.from('products').select('*').order('name', { ascending: true }),
                         supabaseClient.from('supplies').select('*').order('name', { ascending: true }),
@@ -1070,7 +1071,8 @@
                         supabaseClient.from('finance_movements').select('*').order('created_at', { ascending: false }),
                         supabaseClient.from('quotes').select('*').order('created_at', { ascending: false }),
                         supabaseClient.from('designs').select('*').order('created_at', { ascending: false }),
-                        supabaseClient.from('categories').select('*').order('name', { ascending: true })
+                        supabaseClient.from('categories').select('*').order('name', { ascending: true }),
+                        supabaseClient.from('product_supplies').select('*')
                     ]);
 
                     if (!clientsRes.error && Array.isArray(clientsRes.data)) store.clients = clientsRes.data.map(r => this.toClient(r));
@@ -1081,6 +1083,7 @@
                     if (!quotesRes.error && Array.isArray(quotesRes.data)) store.quotes = quotesRes.data.map(r => this.toQuote(r));
                     if (!designsRes.error && Array.isArray(designsRes.data)) store.designs = designsRes.data.map(r => this.toDesign(r));
                     if (!categoriesRes.error && Array.isArray(categoriesRes.data)) store.categories = this.toCategoryStore(categoriesRes.data);
+                    if (!productSuppliesRes.error && Array.isArray(productSuppliesRes.data)) store.productSupplies = productSuppliesRes.data;
 
                     utils.saveStore();
                 } catch (error) {
@@ -1576,7 +1579,7 @@
                                             <tr>
                                                 <td class="px-4 py-3 text-sm text-gray-800 font-medium">${item.productName || 'Producto personalizado'}</td>
                                                 <td class="px-4 py-3 text-sm text-gray-600">${item.description || '-'}</td>
-                                                <td class="px-4 py-3 text-sm text-gray-600 text-center">${formatQuantity(item.quantity)} ${item.unit || ""}</td>
+                                                <td class="px-4 py-3 text-sm text-gray-600 text-center">${item.quantity}</td>
                                                 <td class="px-4 py-3 text-sm text-gray-600 text-right">${utils.formatCurrency(item.price)}</td>
                                                 <td class="px-4 py-3 text-sm font-medium text-gray-900 text-right">${utils.formatCurrency(item.quantity * item.price)}</td>
                                             </tr>
@@ -3420,7 +3423,7 @@
                                                 <div class="col-span-2">
                                                     <label class="block text-xs text-gray-600 mb-1">Cantidad</label>
                                                     <div class="flex items-center gap-1">
-                                                        <input type="text" inputmode="decimal" class="edit-item-qty w-full px-2 py-2 border border-gray-300 rounded text-sm" value="${formatQuantity(item.quantity)}" onchange="calculateEditOrderTotal()" oninput="calculateEditOrderTotal()">
+                                                        <input type="number" class="edit-item-qty w-full px-2 py-2 border border-gray-300 rounded text-sm" value="${item.quantity}" min="0.01" step="0.01" onchange="calculateEditOrderTotal()">
                                                     </div>
                                                 </div>
                                                 <div class="col-span-2">
@@ -3460,8 +3463,212 @@
             },
 
             printOrder: (id) => {
-                utils.notify('Imprimiendo orden...', 'success');
-                setTimeout(() => window.print(), 500);
+                const order = store.orders.find(o => o.id === id);
+                if (!order) {
+                    utils.notify('Pedido no encontrado', 'error');
+                    return;
+                }
+
+                const escapeHtml = (value) => String(value ?? '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+
+                const orderNumber = `#${String(order.id || '').slice(-8).toUpperCase()}`;
+                const orderDate = new Date(order.createdAt || Date.now());
+                const formattedDate = orderDate.toLocaleDateString('es-MX', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                });
+                const formattedTime = orderDate.toLocaleTimeString('es-MX', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                const itemsHtml = (order.items || []).map(item => {
+                    const quantity = Number(item.quantity || 0);
+                    const quantityText = Number.isInteger(quantity)
+                        ? String(quantity)
+                        : quantity.toLocaleString('es-MX', { maximumFractionDigits: 3 });
+                    const unit = escapeHtml(item.unit || 'pieza');
+                    const productName = escapeHtml(item.productName || item.description || 'Producto');
+
+                    return `
+                        <div class="ticket-item">
+                            <div class="ticket-product">${productName}</div>
+                            <div class="ticket-quantity">${quantityText} ${unit}</div>
+                        </div>
+                    `;
+                }).join('');
+
+                const printWindow = window.open('', '_blank', 'width=420,height=720');
+                if (!printWindow) {
+                    utils.notify('El navegador bloqueó la ventana de impresión', 'error');
+                    return;
+                }
+
+                printWindow.document.open();
+                printWindow.document.write(`
+                    <!DOCTYPE html>
+                    <html lang="es">
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>Pedido ${escapeHtml(orderNumber)}</title>
+                        <style>
+                            @page {
+                                size: 58mm auto;
+                                margin: 2mm;
+                            }
+
+                            * {
+                                box-sizing: border-box;
+                            }
+
+                            html, body {
+                                width: 54mm;
+                                margin: 0;
+                                padding: 0;
+                                background: #fff;
+                                color: #000;
+                                font-family: Arial, Helvetica, sans-serif;
+                            }
+
+                            body {
+                                padding: 1mm 0;
+                            }
+
+                            .ticket {
+                                width: 54mm;
+                                text-align: center;
+                            }
+
+                            .logo {
+                                display: block;
+                                width: 34mm;
+                                max-height: 20mm;
+                                object-fit: contain;
+                                margin: 0 auto 1.5mm;
+                                filter: grayscale(1) contrast(1.65);
+                            }
+
+                            .company {
+                                font-size: 13px;
+                                font-weight: 800;
+                                line-height: 1.15;
+                                margin-bottom: 2mm;
+                            }
+
+                            .separator {
+                                border-top: 1px dashed #000;
+                                margin: 2mm 0;
+                            }
+
+                            .order-label {
+                                font-size: 10px;
+                                font-weight: 700;
+                                text-transform: uppercase;
+                            }
+
+                            .order-number {
+                                font-size: 19px;
+                                font-weight: 900;
+                                line-height: 1.2;
+                                margin-top: 0.5mm;
+                            }
+
+                            .ticket-item {
+                                padding: 1.5mm 0;
+                                text-align: left;
+                            }
+
+                            .ticket-product {
+                                font-size: 12px;
+                                font-weight: 800;
+                                overflow-wrap: anywhere;
+                            }
+
+                            .ticket-quantity {
+                                font-size: 10px;
+                                margin-top: 0.5mm;
+                            }
+
+                            .total-label {
+                                font-size: 11px;
+                                font-weight: 800;
+                                text-transform: uppercase;
+                            }
+
+                            .total-value {
+                                font-size: 20px;
+                                font-weight: 900;
+                                margin-top: 0.5mm;
+                            }
+
+                            .date {
+                                display: flex;
+                                justify-content: space-between;
+                                gap: 2mm;
+                                font-size: 9px;
+                                font-weight: 700;
+                                margin-top: 2mm;
+                            }
+
+                            @media print {
+                                html, body {
+                                    width: 54mm !important;
+                                }
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <main class="ticket">
+                            <img
+                                class="logo"
+                                src="logo-feedback.jpg"
+                                alt="Feedback Personalizados"
+                                onerror="this.style.display='none'"
+                            >
+                            <div class="company">FEEDBACK PERSONALIZADOS</div>
+
+                            <div class="separator"></div>
+
+                            <div class="order-label">Pedido</div>
+                            <div class="order-number">${escapeHtml(orderNumber)}</div>
+
+                            <div class="separator"></div>
+
+                            ${itemsHtml || '<div class="ticket-item"><div class="ticket-product">Sin productos</div></div>'}
+
+                            <div class="separator"></div>
+
+                            <div class="total-label">Total</div>
+                            <div class="total-value">${escapeHtml(utils.formatCurrency(Number(order.total || 0)))}</div>
+
+                            <div class="separator"></div>
+
+                            <div class="date">
+                                <span>${escapeHtml(formattedDate)}</span>
+                                <span>${escapeHtml(formattedTime)}</span>
+                            </div>
+                        </main>
+
+                        <script>
+                            window.addEventListener('load', () => {
+                                setTimeout(() => {
+                                    window.print();
+                                    window.onafterprint = () => window.close();
+                                }, 350);
+                            });
+                        <\/script>
+                    </body>
+                    </html>
+                `);
+                printWindow.document.close();
+                utils.notify('Ticket térmico preparado', 'success');
             },
 
             viewQuoteDetail: (id) => {
@@ -4553,47 +4760,33 @@
 
         // Generar opciones de productos para el select
         function getProductOptions() {
+            const hasRecipe = (productId) => Array.isArray(store.productSupplies) && store.productSupplies.some(ps => ps.product_id === productId);
+
+            const renderProductOption = (p) => {
+                const recipe = hasRecipe(p.id);
+                const stockLabel = recipe ? 'Stock por insumo' : `Stock: ${p.stock} ${p.unit || 'pza'}`;
+                return `<option value="${p.id}" data-price="${p.salePrice || p.cost * 2}" data-name="${p.name}" data-stock="${p.stock}" data-unit="${p.unit || 'pza'}" data-has-recipe="${recipe ? 'true' : 'false'}">${p.name} (${stockLabel})</option>`;
+            };
+
             const prendas = store.products.filter(p => p.category === 'playeras' || p.category === 'sudaderas');
             const accesorios = store.products.filter(p => p.category === 'accesorios');
             const otros = store.products.filter(p => !['playeras','sudaderas','accesorios'].includes(p.category));
-            
-            let options = '<option value="">Seleccionar producto...</option>';
+
+            let options = '<option value="">Seleccionar producto.</option>';
             options += '<optgroup label="Ropa">';
-            prendas.forEach(p => {
-                options += `<option value="${p.id}" data-price="${p.salePrice || p.cost * 2}" data-name="${p.name}" data-stock="${p.stock}" data-unit="${p.unit || 'pza'}">${p.name} (Stock: ${p.stock} ${p.unit || 'pza'})</option>`;
-            });
+            prendas.forEach(p => { options += renderProductOption(p); });
             options += '</optgroup>';
             options += '<optgroup label="Accesorios">';
-            accesorios.forEach(p => {
-                options += `<option value="${p.id}" data-price="${p.salePrice || p.cost * 2}" data-name="${p.name}" data-stock="${p.stock}" data-unit="${p.unit || 'pza'}">${p.name} (Stock: ${p.stock} ${p.unit || 'pza'})</option>`;
-            });
+            accesorios.forEach(p => { options += renderProductOption(p); });
             options += '</optgroup>';
             if (otros.length > 0) {
                 options += '<optgroup label="Otros">';
-                otros.forEach(p => {
-                    options += `<option value="${p.id}" data-price="${p.salePrice || p.cost * 2}" data-name="${p.name}" data-stock="${p.stock}" data-unit="${p.unit || 'pza'}">${p.name} (Stock: ${p.stock} ${p.unit || 'pza'})</option>`;
-                });
+                otros.forEach(p => { options += renderProductOption(p); });
                 options += '</optgroup>';
             }
-            options += '<option value="custom" data-price="0" data-name="Personalizado" data-unit="pza">Otro / Personalizado</option>';
-            
+            options += '<option value="custom" data-price="0" data-name="Personalizado" data-unit="pza" data-has-recipe="false">Otro / Personalizado</option>';
+
             return options;
-        }
-
-
-        // Decimal helper para cantidades en metros/m2/cm.
-        // Acepta "0.5" y "0,5" sin convertir a entero.
-        function parseDecimalInput(value) {
-            if (value === null || value === undefined) return 0;
-            const normalized = String(value).trim().replace(',', '.');
-            const parsed = Number(normalized);
-            return Number.isFinite(parsed) ? parsed : 0;
-        }
-
-        function formatQuantity(value) {
-            const n = Number(value || 0);
-            if (!Number.isFinite(n)) return '0';
-            return String(n).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
         }
 
         // Quick Actions
@@ -4699,7 +4892,7 @@
                         <div class="md:col-span-2">
                             <label class="block text-xs text-gray-600 mb-1">Cantidad *</label>
                             <div class="flex items-center gap-1">
-                                <input type="text" inputmode="decimal" class="item-qty w-full px-3 py-2 border border-gray-300 rounded text-sm" value="1" required oninput="calculateOrderTotal()" onchange="calculateOrderTotal()">
+                                <input type="number" class="item-qty w-full px-3 py-2 border border-gray-300 rounded text-sm" value="1" min="0.01" step="0.01" required onchange="calculateOrderTotal()">
                                 <span class="item-unit text-xs text-gray-500 whitespace-nowrap">pza</span>
                             </div>
                         </div>
@@ -4734,29 +4927,37 @@
             const priceInput = itemRow.querySelector('.item-price');
             const stockInfo = itemRow.querySelector('.item-stock-info');
             const unitLabel = itemRow.querySelector('.item-unit');
-            
+
             if (option && option.value) {
                 const price = parseFloat(option.dataset.price) || 0;
-                const stock = parseDecimalInput(option.dataset.stock);
+                const stock = parseFloat(option.dataset.stock) || 0;
                 const unit = option.dataset.unit || 'pza';
                 const name = option.dataset.name || '';
-                
+                const hasRecipe = option.dataset.hasRecipe === 'true';
+
                 priceInput.value = price;
                 if (unitLabel) unitLabel.textContent = unit;
-                
+
                 if (option.value !== 'custom') {
-                    stockInfo.textContent = `Stock disponible: ${stock} ${unit} | ${name}. Captura decimales si aplica; ej. 25 cm = 0.25 m`;
-                    stockInfo.classList.remove('hidden');
-                    
                     const qtyInput = itemRow.querySelector('.item-qty');
-                    qtyInput.max = stock;
-                    qtyInput.onchange = function() {
-                        if (parseDecimalInput(this.value) > stock) {
-                            utils.notify(`Stock insuficiente. Máximo disponible: ${stock} ${unit}`, 'warning');
-                            this.value = stock;
-                        }
-                        calculateOrderTotal();
-                    };
+
+                    if (hasRecipe) {
+                        stockInfo.textContent = `Stock controlado por insumo relacionado | ${name}. Captura decimales si aplica; ej. 8.4 m`;
+                        stockInfo.classList.remove('hidden');
+                        qtyInput.removeAttribute('max');
+                        qtyInput.onchange = function() { calculateOrderTotal(); };
+                    } else {
+                        stockInfo.textContent = `Stock disponible: ${stock} ${unit} | ${name}. Captura decimales si aplica; ej. 25 cm = 0.25 m`;
+                        stockInfo.classList.remove('hidden');
+                        qtyInput.max = stock;
+                        qtyInput.onchange = function() {
+                            if (parseFloat(this.value) > stock) {
+                                utils.notify(`Stock insuficiente. Máximo disponible: ${stock} ${unit}`, 'warning');
+                                this.value = stock;
+                            }
+                            calculateOrderTotal();
+                        };
+                    }
                 } else {
                     stockInfo.textContent = 'Producto personalizado - sin control de inventario';
                     stockInfo.classList.remove('hidden');
@@ -4765,7 +4966,7 @@
                     priceInput.placeholder = 'Ingrese precio';
                     priceInput.focus();
                 }
-                
+
                 calculateOrderTotal();
             }
         }
@@ -4773,8 +4974,8 @@
         function calculateOrderTotal() {
             let total = 0;
             document.querySelectorAll('.order-item').forEach(item => {
-                const qty = parseDecimalInput(item.querySelector('.item-qty').value);
-                const price = parseDecimalInput(item.querySelector('.item-price').value);
+                const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
+                const price = parseFloat(item.querySelector('.item-price').value) || 0;
                 total += qty * price;
             });
 
@@ -4841,8 +5042,8 @@
                 const productId = productSelect.value;
                 const option = productSelect.selectedOptions[0];
                 const desc = item.querySelector('.item-desc').value.trim();
-                const qty = parseDecimalInput(item.querySelector('.item-qty').value);
-                const price = parseDecimalInput(item.querySelector('.item-price').value);
+                const qty = parseFloat(item.querySelector('.item-qty').value) || 0;
+                const price = parseFloat(item.querySelector('.item-price').value) || 0;
                 
                 if (!productId) {
                     utils.notify('Selecciona un producto para cada artículo', 'error');
@@ -4857,16 +5058,20 @@
                 if (productId !== 'custom') {
                     const product = store.products.find(p => p.id === productId);
                     if (product) {
-                        if (product.stock < qty) {
+                        const productHasRecipe = Array.isArray(store.productSupplies) && store.productSupplies.some(ps => ps.product_id === productId);
+
+                        if (!productHasRecipe && product.stock < qty) {
                             utils.notify(`Stock insuficiente para ${product.name}. Disponible: ${product.stock}`, 'error');
                             throw new Error('Stock insuficiente');
                         }
-                        
-                        stockUpdates.push({
-                            product: product,
-                            qty: qty
-                        });
-                        
+
+                        if (!productHasRecipe) {
+                            stockUpdates.push({
+                                product: product,
+                                qty: qty
+                            });
+                        }
+
                         items.push({
                             productId: productId,
                             productName: product.name,
@@ -5172,9 +5377,8 @@
                         productId: quote.productId || 'custom',
                         productName: quote.productName || `Cotización #${quote.id.substr(-4)}`,
                         description: `Impresión DTF - ${quote.qty} piezas tamaño ${quote.size}`,
-                        quantity: Number(quote.qty || 0),
-                        unit: 'pieza',
-                        price: Number(quote.qty || 0) ? quote.total / Number(quote.qty || 1) : quote.total
+                        quantity: quote.qty,
+                        price: quote.total / quote.qty
                     }],
                     total: quote.total,
                     status: 'recibido',
@@ -5227,7 +5431,7 @@
                     </div>
                     <div class="col-span-2">
                         <label class="block text-xs text-gray-600 mb-1">Cantidad</label>
-                        <input type="text" inputmode="decimal" class="edit-item-qty w-full px-2 py-2 border border-gray-300 rounded text-sm" value="1" onchange="calculateEditOrderTotal()" oninput="calculateEditOrderTotal()">
+                        <input type="number" class="edit-item-qty w-full px-2 py-2 border border-gray-300 rounded text-sm" value="1" min="0.01" step="0.01" onchange="calculateEditOrderTotal()">
                     </div>
                     <div class="col-span-2">
                         <label class="block text-xs text-gray-600 mb-1">Precio unit.</label>
@@ -5254,8 +5458,8 @@
         function calculateEditOrderTotal() {
             let total = 0;
             document.querySelectorAll('.edit-order-item').forEach(item => {
-                const qty = parseDecimalInput(item.querySelector('.edit-item-qty').value);
-                const price = parseDecimalInput(item.querySelector('.edit-item-price').value);
+                const qty = parseFloat(item.querySelector('.edit-item-qty').value) || 0;
+                const price = parseFloat(item.querySelector('.edit-item-price').value) || 0;
                 total += qty * price;
             });
             const el = document.getElementById('editOrderTotal');
@@ -5275,8 +5479,8 @@
                 const productSelect = item.querySelector('.edit-item-product');
                 const productId = productSelect.value;
                 const option = productSelect.selectedOptions[0];
-                const qty = parseDecimalInput(item.querySelector('.edit-item-qty').value);
-                const price = parseDecimalInput(item.querySelector('.edit-item-price').value);
+                const qty = parseFloat(item.querySelector('.edit-item-qty').value) || 0;
+                const price = parseFloat(item.querySelector('.edit-item-price').value) || 0;
                 const desc = item.querySelector('.edit-item-desc').value.trim();
                 if (!productId || qty <= 0) return;
                 const product = store.products.find(p => p.id === productId);
@@ -5285,7 +5489,6 @@
                     productName: product ? product.name : (option?.dataset?.name || 'Personalizado'),
                     description: desc,
                     quantity: qty,
-                    unit: product ? (product.unit || option?.dataset?.unit || 'pieza') : (option?.dataset?.unit || 'pieza'),
                     price
                 });
             });
@@ -5621,7 +5824,7 @@
                 reader.readAsDataURL(file);
             } else {
                 // Para otros archivos, usar icono genérico
-                design.imageData = getFileIcon(file.name);
+                design.imageData = null;
                 design.iconUrl = getFileIcon(file.name);
                 finishDesignUpload(design);
             }
