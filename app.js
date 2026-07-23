@@ -3462,7 +3462,7 @@
                 calculateEditOrderTotal();
             },
 
-            printOrder: (id) => {
+            printOrder: async (id) => {
                 const order = store.orders.find(o => o.id === id);
                 if (!order) {
                     utils.notify('Pedido no encontrado', 'error');
@@ -3475,6 +3475,33 @@
                     .replace(/>/g, '&gt;')
                     .replace(/"/g, '&quot;')
                     .replace(/'/g, '&#039;');
+
+                const formatWholeCurrency = (value) => {
+                    const rounded = Math.round(Number(value || 0));
+                    return new Intl.NumberFormat('es-MX', {
+                        style: 'currency',
+                        currency: 'MXN',
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 0
+                    }).format(rounded);
+                };
+
+                let ticketFolio = '-----';
+
+                if (window.supabaseClient) {
+                    try {
+                        const { data, error } = await supabaseClient.rpc('get_or_create_ticket_folio', {
+                            p_order_id: String(order.id)
+                        });
+
+                        if (error) throw error;
+
+                        ticketFolio = String(data || '').padStart(5, '0');
+                    } catch (folioError) {
+                        console.error('No se pudo obtener el folio del ticket:', folioError);
+                        utils.notify('No se pudo obtener el folio consecutivo del ticket', 'warning');
+                    }
+                }
 
                 const orderNumber = `#${String(order.id || '').slice(-8).toUpperCase()}`;
                 const orderDate = new Date(order.createdAt || Date.now());
@@ -3490,16 +3517,29 @@
 
                 const itemsHtml = (order.items || []).map(item => {
                     const quantity = Number(item.quantity || 0);
+                    const unitPrice = Number(item.price || 0);
+                    const lineTotal = Math.round(quantity * unitPrice);
+
                     const quantityText = Number.isInteger(quantity)
                         ? String(quantity)
-                        : quantity.toLocaleString('es-MX', { maximumFractionDigits: 3 });
-                    const unit = escapeHtml(item.unit || 'pieza');
+                        : quantity.toLocaleString('es-MX', {
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 3
+                        });
+
+                    const rawUnit = String(item.unit || 'pieza').toLowerCase();
+                    const unit = rawUnit === 'metro' ? 'm' : rawUnit;
                     const productName = escapeHtml(item.productName || item.description || 'Producto');
 
                     return `
                         <div class="ticket-item">
-                            <div class="ticket-product">${productName}</div>
-                            <div class="ticket-quantity">${quantityText} ${unit}</div>
+                            <div class="item-main">
+                                <div class="item-description">
+                                    <div class="ticket-product">${productName}</div>
+                                    <div class="ticket-quantity">${escapeHtml(quantityText)} ${escapeHtml(unit)}</div>
+                                </div>
+                                <div class="ticket-price">${escapeHtml(formatWholeCurrency(lineTotal))}</div>
+                            </div>
                         </div>
                     `;
                 }).join('');
@@ -3567,32 +3607,53 @@
                                 margin: 2mm 0;
                             }
 
-                            .order-label {
-                                font-size: 10px;
-                                font-weight: 700;
-                                text-transform: uppercase;
-                            }
-
-                            .order-number {
+                            .meta-row {
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: baseline;
+                                gap: 2mm;
                                 font-size: 9px;
                                 font-weight: 700;
-                                line-height: 1.2;
-                                margin-top: 0.5mm;
+                                margin: 0.8mm 0;
+                                text-align: left;
+                            }
+
+                            .meta-value {
+                                text-align: right;
+                                overflow-wrap: anywhere;
+                            }
+
+                            .client-label {
+                                font-size: 10px;
+                                font-weight: 700;
+                                margin-top: 1.5mm;
                             }
 
                             .client-name {
-                                font-size: 12px;
-                                font-weight: 800;
+                                font-size: 14px;
+                                font-weight: 900;
                                 line-height: 1.2;
-                                margin-top: 1.5mm;
+                                margin-top: 0.5mm;
                                 margin-bottom: 1mm;
                                 text-align: center;
                                 overflow-wrap: anywhere;
                             }
 
                             .ticket-item {
-                                padding: 1.5mm 0;
+                                padding: 1.8mm 0;
+                            }
+
+                            .item-main {
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: flex-start;
+                                gap: 2mm;
                                 text-align: left;
+                            }
+
+                            .item-description {
+                                flex: 1 1 auto;
+                                min-width: 0;
                             }
 
                             .ticket-product {
@@ -3606,6 +3667,15 @@
                                 margin-top: 0.5mm;
                             }
 
+                            .ticket-price {
+                                flex: 0 0 auto;
+                                min-width: 15mm;
+                                text-align: right;
+                                font-size: 12px;
+                                font-weight: 800;
+                                white-space: nowrap;
+                            }
+
                             .total-label {
                                 font-size: 11px;
                                 font-weight: 800;
@@ -3613,7 +3683,7 @@
                             }
 
                             .total-value {
-                                font-size: 20px;
+                                font-size: 22px;
                                 font-weight: 900;
                                 margin-top: 0.5mm;
                             }
@@ -3624,6 +3694,12 @@
                                 gap: 2mm;
                                 font-size: 9px;
                                 font-weight: 700;
+                                margin-top: 2mm;
+                            }
+
+                            .thanks {
+                                font-size: 10px;
+                                font-weight: 800;
                                 margin-top: 2mm;
                             }
 
@@ -3646,8 +3722,16 @@
 
                             <div class="separator"></div>
 
-                            <div class="order-label">Pedido</div>
-                            <div class="order-number">${escapeHtml(orderNumber)}</div>
+                            <div class="meta-row">
+                                <span>FOLIO:</span>
+                                <span class="meta-value">${escapeHtml(ticketFolio)}</span>
+                            </div>
+                            <div class="meta-row">
+                                <span>PEDIDO:</span>
+                                <span class="meta-value">${escapeHtml(orderNumber)}</span>
+                            </div>
+
+                            <div class="client-label">Cliente:</div>
                             <div class="client-name">${escapeHtml(order.clientName || 'Mostrador')}</div>
 
                             <div class="separator"></div>
@@ -3657,7 +3741,7 @@
                             <div class="separator"></div>
 
                             <div class="total-label">Total</div>
-                            <div class="total-value">${escapeHtml(utils.formatCurrency(Number(order.total || 0)))}</div>
+                            <div class="total-value">${escapeHtml(formatWholeCurrency(order.total))}</div>
 
                             <div class="separator"></div>
 
@@ -3665,6 +3749,8 @@
                                 <span>${escapeHtml(formattedDate)}</span>
                                 <span>${escapeHtml(formattedTime)}</span>
                             </div>
+
+                            <div class="thanks">¡Gracias por su compra!</div>
                         </main>
 
                         <script>
