@@ -3561,7 +3561,7 @@
                         <style>
                             @page {
                                 size: 58mm auto;
-                                margin: 2mm;
+                                margin: 2mm 4mm 2mm 2mm;
                             }
 
                             * {
@@ -3569,7 +3569,7 @@
                             }
 
                             html, body {
-                                width: 54mm;
+                                width: 50mm;
                                 margin: 0;
                                 padding: 0;
                                 background: #fff;
@@ -3582,7 +3582,8 @@
                             }
 
                             .ticket {
-                                width: 54mm;
+                                width: 50mm;
+                                padding-right: 2mm;
                                 text-align: center;
                             }
 
@@ -3615,10 +3616,13 @@
                                 font-size: 9px;
                                 font-weight: 700;
                                 margin: 0.8mm 0;
+                                padding: 0 3mm 0 1mm;
                                 text-align: left;
                             }
 
                             .meta-value {
+                                max-width: 28mm;
+                                padding-right: 1mm;
                                 text-align: right;
                                 overflow-wrap: anywhere;
                             }
@@ -3648,6 +3652,7 @@
                                 justify-content: space-between;
                                 align-items: flex-start;
                                 gap: 2mm;
+                                padding-right: 3mm;
                                 text-align: left;
                             }
 
@@ -3669,7 +3674,8 @@
 
                             .ticket-price {
                                 flex: 0 0 auto;
-                                min-width: 15mm;
+                                min-width: 14mm;
+                                padding-right: 1mm;
                                 text-align: right;
                                 font-size: 12px;
                                 font-weight: 800;
@@ -3686,6 +3692,7 @@
                                 font-size: 22px;
                                 font-weight: 900;
                                 margin-top: 0.5mm;
+                                padding-right: 3mm;
                             }
 
                             .date {
@@ -3705,7 +3712,11 @@
 
                             @media print {
                                 html, body {
-                                    width: 54mm !important;
+                                    width: 50mm !important;
+                                }
+
+                                .ticket {
+                                    width: 50mm !important;
                                 }
                             }
                         </style>
