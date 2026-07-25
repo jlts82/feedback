@@ -33,6 +33,11 @@
             }
         })();
 
+        // ============================================================
+        // V24.1: Alertas de inventario silenciosas + versión visual
+        // ============================================================
+        const APP_VERSION = 'V24.2';
+
         // Data Store - Estructura migrada y normalizada
         const store = {
             orders: [],
@@ -550,9 +555,9 @@
             
             // NUEVO: Guardado inteligente que respeta la separación
             saveStore: () => {
-                // V22: Sin persistencia local. Toda la información de negocio vive en Supabase.
-                // Esta función queda solo para recalcular alertas visuales sin escribir en localStorage.
-                utils.checkLowStock();
+                // V24.1: Sin persistencia local y sin notificaciones automáticas de stock.
+                // El indicador de stock bajo permanece visible en el Dashboard.
+                return utils.checkLowStock();
             },
 
             notify: (message, type = 'success') => {
@@ -563,15 +568,17 @@
                 setTimeout(() => div.remove(), 3000);
             },
             
-            // NUEVO: Verificación de stock separada por tipo
+            // V24.1: Cálculo silencioso de stock bajo.
+            // No genera notificaciones; el Dashboard conserva su tarjeta de alerta.
             checkLowStock: () => {
                 const lowSupplies = store.supplies.filter(item => item.stock <= item.minStock);
                 const lowProducts = store.products.filter(item => item.stock <= item.minStock);
-                const totalLow = lowSupplies.length + lowProducts.length;
-                
-                if (totalLow > 0) {
-                    utils.notify(`⚠️ ${totalLow} items con stock bajo (${lowSupplies.length} insumos, ${lowProducts.length} productos)`, 'warning');
-                }
+
+                return {
+                    lowSupplies,
+                    lowProducts,
+                    totalLow: lowSupplies.length + lowProducts.length
+                };
             },
             
             // NUEVO: Helpers para categorías
@@ -1309,13 +1316,13 @@
                                 <p class="text-3xl font-bold text-gray-800">${utils.formatCurrency(store.finanzas ? store.finanzas.filter(m => { const d=new Date(m.fecha); return d.getMonth()===new Date().getMonth()&&d.getFullYear()===new Date().getFullYear()&&m.tipo==='venta'; }).reduce((a,m)=>a+m.monto,0) : 0)}</p>
                                 <p class="text-sm text-gray-600">Ventas del mes</p>
                             </div>
-                            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 card-hover ${(lowSupplies.length + lowProducts.length) > 0 ? 'border-red-300 bg-red-50' : ''}">
+                            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 card-hover">
                                 <div class="flex items-center justify-between mb-4">
-                                    <div class="p-3 ${(lowSupplies.length + lowProducts.length) > 0 ? 'bg-red-200 text-red-700' : 'bg-gray-100 text-gray-600'} rounded-lg"><i class="fas fa-box text-xl"></i></div>
-                                    <span class="text-sm text-gray-500">Alerta</span>
+                                    <div class="p-3 bg-indigo-100 rounded-lg text-indigo-600"><i class="fas fa-boxes text-xl"></i></div>
+                                    <span class="text-sm text-gray-500">Inventario</span>
                                 </div>
-                                <p class="text-3xl font-bold ${(lowSupplies.length + lowProducts.length) > 0 ? 'text-red-600' : 'text-gray-800'}">${lowSupplies.length + lowProducts.length}</p>
-                                <p class="text-sm text-gray-600">Stock bajo (${lowSupplies.length} insumos, ${lowProducts.length} prod.)</p>
+                                <p class="text-3xl font-bold text-gray-800">${store.products.length}</p>
+                                <p class="text-sm text-gray-600">Productos registrados</p>
                             </div>
                         </div>
 
@@ -5989,12 +5996,30 @@
 
 
 
+        function renderAppVersion() {
+            const existing = document.getElementById('app-version-badge');
+            if (existing) {
+                existing.textContent = `Versión ${APP_VERSION}`;
+                return;
+            }
+
+            const sidebar = document.getElementById('sidebar');
+            if (!sidebar) return;
+
+            const badge = document.createElement('div');
+            badge.id = 'app-version-badge';
+            badge.className = 'mx-3 mb-3 px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs text-center';
+            badge.textContent = `Versión ${APP_VERSION}`;
+            sidebar.appendChild(badge);
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
             await auth.init();
             security.sanitizeStore(store);
             await supabaseData.loadAll();
             auth.applyRoleUI();
+            renderAppVersion();
             router.navigate('dashboard');
             
             // Close modal on overlay click
