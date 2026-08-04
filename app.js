@@ -34,9 +34,9 @@
         })();
 
         // ============================================================
-        // V24.3: Administración segura de contraseñas
+        // V24.1: Alertas de inventario silenciosas + versión visual
         // ============================================================
-        const APP_VERSION = 'V24.3.1';
+        const APP_VERSION = 'V24.2';
 
         // Data Store - Estructura migrada y normalizada
         const store = {
@@ -555,7 +555,8 @@
             
             // NUEVO: Guardado inteligente que respeta la separación
             saveStore: () => {
-                // V24.3: Sin persistencia local y sin notificaciones automáticas de stock.
+                // V24.1: Sin persistencia local y sin notificaciones automáticas de stock.
+                // El indicador de stock bajo permanece visible en el Dashboard.
                 return utils.checkLowStock();
             },
 
@@ -567,10 +568,12 @@
                 setTimeout(() => div.remove(), 3000);
             },
             
-            // V24.3: Cálculo silencioso de stock bajo.
+            // V24.1: Cálculo silencioso de stock bajo.
+            // No genera notificaciones; el Dashboard conserva su tarjeta de alerta.
             checkLowStock: () => {
                 const lowSupplies = store.supplies.filter(item => item.stock <= item.minStock);
                 const lowProducts = store.products.filter(item => item.stock <= item.minStock);
+
                 return {
                     lowSupplies,
                     lowProducts,
@@ -4159,8 +4162,8 @@
                             </div>
                             <div class="xl:col-span-2 rounded-2xl bg-blue-50 border border-blue-100 p-5 text-sm text-blue-800">
                                 <h3 class="font-bold mb-2"><i class="fas fa-info-circle mr-2"></i>Importante</h3>
-                                <p>Para crear usuarios y cambiar contraseñas se usan Edge Functions seguras de Supabase. La llave <strong>service_role</strong> nunca se expone en el navegador.</p>
-                                <p class="mt-2">Las funciones requeridas son <strong>create-user</strong> y <strong>reset-user-password</strong>.</p>
+                                <p>Para crear usuarios desde la app se usa una <strong>Edge Function</strong> de Supabase llamada <strong>create-user</strong>. Esto evita exponer la llave <strong>service_role</strong> en el navegador.</p>
+                                <p class="mt-2">Si al crear usuario aparece error de función no encontrada, sube la carpeta <strong>supabase/functions/create-user</strong> con Supabase CLI.</p>
                             </div>
                         </div>
                         <div id="users-admin-status" class="text-sm text-gray-500 py-4">Cargando usuarios...</div>
@@ -4243,14 +4246,9 @@
                         </td>
                         <td class="px-4 py-3 text-gray-500 whitespace-nowrap">${this.safe(lastAccess)}</td>
                         <td class="px-4 py-3 text-center">
-                            <div class="inline-flex flex-wrap justify-center gap-2">
-                                <button onclick="usersAdmin.save('${id}')" class="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm">
-                                    <i class="fas fa-save"></i> Guardar
-                                </button>
-                                <button onclick="usersAdmin.resetPassword('${id}', '${email}')" class="inline-flex items-center gap-2 px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors text-sm">
-                                    <i class="fas fa-key"></i> Contraseña
-                                </button>
-                            </div>
+                            <button onclick="usersAdmin.save('${id}')" class="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm">
+                                <i class="fas fa-save"></i> Guardar
+                            </button>
                         </td>
                     </tr>
                 `;
@@ -4321,59 +4319,6 @@
                     ? 'text-xs rounded-lg p-3 bg-red-50 border border-red-100 text-red-700'
                     : 'text-xs rounded-lg p-3 bg-emerald-50 border border-emerald-100 text-emerald-700';
                 box.classList.remove('hidden');
-            },
-
-            async resetPassword(id, email) {
-                if (!window.auth || auth.role !== 'administrador') {
-                    utils.notify('No tienes permiso para cambiar contraseñas', 'error');
-                    return;
-                }
-
-                const password = window.prompt(`Nueva contraseña para ${email}:`);
-                if (password === null) return;
-
-                if (password.length < 6) {
-                    utils.notify('La contraseña debe tener mínimo 6 caracteres', 'error');
-                    return;
-                }
-
-                const confirmation = window.prompt('Confirma la nueva contraseña:');
-                if (confirmation === null) return;
-
-                if (password !== confirmation) {
-                    utils.notify('Las contraseñas no coinciden', 'error');
-                    return;
-                }
-
-                const { data: sessionData } = await supabaseClient.auth.getSession();
-                const token = sessionData?.session?.access_token;
-
-                if (!token) {
-                    utils.notify('Tu sesión expiró. Cierra sesión e inicia de nuevo.', 'error');
-                    return;
-                }
-
-                try {
-                    const response = await fetch(`${SUPABASE_URL}/functions/v1/quick-service`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        },
-                        body: JSON.stringify({ user_id: id, password })
-                    });
-
-                    const result = await response.json().catch(() => ({}));
-
-                    if (!response.ok) {
-                        throw new Error(result.error || 'No se pudo cambiar la contraseña.');
-                    }
-
-                    utils.notify(`Contraseña actualizada para ${email}`);
-                } catch (error) {
-                    console.error('Error cambiando contraseña:', error);
-                    utils.notify(error.message || 'No se pudo cambiar la contraseña', 'error');
-                }
             },
 
             async save(id) {
