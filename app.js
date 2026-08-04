@@ -36,7 +36,7 @@
         // ============================================================
         // V24.3: Administración segura de contraseñas
         // ============================================================
-        const APP_VERSION = 'V24.3';
+        const APP_VERSION = 'V24.3.1';
 
         // Data Store - Estructura migrada y normalizada
         const store = {
@@ -4354,7 +4354,7 @@
                 }
 
                 try {
-                    const response = await fetch(`${SUPABASE_URL}/functions/v1/reset-user-password`, {
+                    const response = await fetch(`${SUPABASE_URL}/functions/v1/quick-service`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
