@@ -36,7 +36,7 @@
         // ============================================================
         // V24.4: Datos de ticket + corrección Ventas del mes
         // ============================================================
-        const APP_VERSION = 'V24.4';
+        const APP_VERSION = 'V24.5.1';
 
         // Data Store - Estructura migrada y normalizada
         const store = {
@@ -553,49 +553,21 @@
             formatDate: (date) => new Date(date).toLocaleDateString('es-MX'),
             formatCurrency: (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount),
 
-            // V24.4: Total de ventas del mes robusto.
-            // Usa Finanzas como fuente principal y completa pedidos entregados
-            // que no tengan un movimiento financiero asociado.
+            // V24.5: Ventas del mes = pedidos generados en el mes, excepto cancelados.
+            // Esto refleja las ventas registradas aunque el pedido todavía esté en producción.
             getMonthlySalesTotal: (referenceDate = new Date()) => {
                 const month = referenceDate.getMonth();
                 const year = referenceDate.getFullYear();
 
-                const isSameMonth = (value) => {
-                    if (!value) return false;
-                    const d = new Date(value);
-                    return !Number.isNaN(d.getTime())
-                        && d.getMonth() === month
-                        && d.getFullYear() === year;
-                };
-
-                const financeSales = (store.finanzas || []).filter(m =>
-                    m.tipo === 'venta' && isSameMonth(m.fecha || m.createdAt)
-                );
-
-                const financeOrderIds = new Set(
-                    financeSales
-                        .map(m => String(m.pedidoId || m.pedidoRef || '').trim())
-                        .filter(Boolean)
-                );
-
-                const financeTotal = financeSales.reduce(
-                    (sum, m) => sum + Number(m.monto || 0),
-                    0
-                );
-
-                const missingDeliveredOrdersTotal = (store.orders || [])
+                return (store.orders || [])
                     .filter(order => {
-                        if (order.status !== 'entregado') return false;
-                        const saleDate = order.updatedAt || order.createdAt;
-                        if (!isSameMonth(saleDate)) return false;
-
-                        const orderId = String(order.id || '').trim();
-                        const shortId = orderId.slice(-6);
-                        return !financeOrderIds.has(orderId) && !financeOrderIds.has(shortId);
+                        if (order.status === 'cancelado') return false;
+                        const d = new Date(order.createdAt);
+                        return !Number.isNaN(d.getTime())
+                            && d.getMonth() === month
+                            && d.getFullYear() === year;
                     })
                     .reduce((sum, order) => sum + Number(order.total || 0), 0);
-
-                return financeTotal + missingDeliveredOrdersTotal;
             },
             
             // NUEVO: Guardado inteligente que respeta la separación
@@ -3795,7 +3767,7 @@
                             <div class="company">FEEDBACK PERSONALIZADOS</div>
                             <div class="business-contact">
                                 <div>Teléfono: 2227950930</div>
-                                <div>Dirección: 17 ppte 115A Col. Santiago</div>
+                                <div>Dirección: 17 ppte 1115 A Col. Santiago</div>
                             </div>
 
                             <div class="separator"></div>
