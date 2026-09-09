@@ -34,9 +34,9 @@
         })();
 
         // ============================================================
-        // V24.1: Alertas de inventario silenciosas + versión visual
+        // V24.4: Datos de ticket + corrección Ventas del mes
         // ============================================================
-        const APP_VERSION = 'V24.2';
+        const APP_VERSION = 'V24.4';
 
         // Data Store - Estructura migrada y normalizada
         const store = {
@@ -552,12 +552,57 @@
             generateId: () => 'id_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
             formatDate: (date) => new Date(date).toLocaleDateString('es-MX'),
             formatCurrency: (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount),
+
+            // V24.4: Total de ventas del mes robusto.
+            // Usa Finanzas como fuente principal y completa pedidos entregados
+            // que no tengan un movimiento financiero asociado.
+            getMonthlySalesTotal: (referenceDate = new Date()) => {
+                const month = referenceDate.getMonth();
+                const year = referenceDate.getFullYear();
+
+                const isSameMonth = (value) => {
+                    if (!value) return false;
+                    const d = new Date(value);
+                    return !Number.isNaN(d.getTime())
+                        && d.getMonth() === month
+                        && d.getFullYear() === year;
+                };
+
+                const financeSales = (store.finanzas || []).filter(m =>
+                    m.tipo === 'venta' && isSameMonth(m.fecha || m.createdAt)
+                );
+
+                const financeOrderIds = new Set(
+                    financeSales
+                        .map(m => String(m.pedidoId || m.pedidoRef || '').trim())
+                        .filter(Boolean)
+                );
+
+                const financeTotal = financeSales.reduce(
+                    (sum, m) => sum + Number(m.monto || 0),
+                    0
+                );
+
+                const missingDeliveredOrdersTotal = (store.orders || [])
+                    .filter(order => {
+                        if (order.status !== 'entregado') return false;
+                        const saleDate = order.updatedAt || order.createdAt;
+                        if (!isSameMonth(saleDate)) return false;
+
+                        const orderId = String(order.id || '').trim();
+                        const shortId = orderId.slice(-6);
+                        return !financeOrderIds.has(orderId) && !financeOrderIds.has(shortId);
+                    })
+                    .reduce((sum, order) => sum + Number(order.total || 0), 0);
+
+                return financeTotal + missingDeliveredOrdersTotal;
+            },
             
             // NUEVO: Guardado inteligente que respeta la separación
             saveStore: () => {
-                // V24.1: Sin persistencia local y sin notificaciones automáticas de stock.
-                // El indicador de stock bajo permanece visible en el Dashboard.
-                return utils.checkLowStock();
+                // V22: Sin persistencia local. Toda la información de negocio vive en Supabase.
+                // Esta función queda solo para recalcular alertas visuales sin escribir en localStorage.
+                utils.checkLowStock();
             },
 
             notify: (message, type = 'success') => {
@@ -568,17 +613,15 @@
                 setTimeout(() => div.remove(), 3000);
             },
             
-            // V24.1: Cálculo silencioso de stock bajo.
-            // No genera notificaciones; el Dashboard conserva su tarjeta de alerta.
+            // NUEVO: Verificación de stock separada por tipo
             checkLowStock: () => {
                 const lowSupplies = store.supplies.filter(item => item.stock <= item.minStock);
                 const lowProducts = store.products.filter(item => item.stock <= item.minStock);
-
-                return {
-                    lowSupplies,
-                    lowProducts,
-                    totalLow: lowSupplies.length + lowProducts.length
-                };
+                const totalLow = lowSupplies.length + lowProducts.length;
+                
+                if (totalLow > 0) {
+                    utils.notify(`⚠️ ${totalLow} items con stock bajo (${lowSupplies.length} insumos, ${lowProducts.length} productos)`, 'warning');
+                }
             },
             
             // NUEVO: Helpers para categorías
@@ -1313,16 +1356,16 @@
                                     <div class="p-3 bg-green-100 rounded-lg text-green-600"><i class="fas fa-coins text-xl"></i></div>
                                     <span class="text-sm text-gray-500">Finanzas</span>
                                 </div>
-                                <p class="text-3xl font-bold text-gray-800">${utils.formatCurrency(store.finanzas ? store.finanzas.filter(m => { const d=new Date(m.fecha); return d.getMonth()===new Date().getMonth()&&d.getFullYear()===new Date().getFullYear()&&m.tipo==='venta'; }).reduce((a,m)=>a+m.monto,0) : 0)}</p>
+                                <p class="text-3xl font-bold text-gray-800">${utils.formatCurrency(utils.getMonthlySalesTotal())}</p>
                                 <p class="text-sm text-gray-600">Ventas del mes</p>
                             </div>
-                            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 card-hover">
+                            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 card-hover ${(lowSupplies.length + lowProducts.length) > 0 ? 'border-red-300 bg-red-50' : ''}">
                                 <div class="flex items-center justify-between mb-4">
-                                    <div class="p-3 bg-indigo-100 rounded-lg text-indigo-600"><i class="fas fa-boxes text-xl"></i></div>
-                                    <span class="text-sm text-gray-500">Inventario</span>
+                                    <div class="p-3 ${(lowSupplies.length + lowProducts.length) > 0 ? 'bg-red-200 text-red-700' : 'bg-gray-100 text-gray-600'} rounded-lg"><i class="fas fa-box text-xl"></i></div>
+                                    <span class="text-sm text-gray-500">Alerta</span>
                                 </div>
-                                <p class="text-3xl font-bold text-gray-800">${store.products.length}</p>
-                                <p class="text-sm text-gray-600">Productos registrados</p>
+                                <p class="text-3xl font-bold ${(lowSupplies.length + lowProducts.length) > 0 ? 'text-red-600' : 'text-gray-800'}">${lowSupplies.length + lowProducts.length}</p>
+                                <p class="text-sm text-gray-600">Stock bajo (${lowSupplies.length} insumos, ${lowProducts.length} prod.)</p>
                             </div>
                         </div>
 
@@ -3607,7 +3650,20 @@
                                 font-size: 13px;
                                 font-weight: 800;
                                 line-height: 1.15;
-                                margin-bottom: 2mm;
+                                margin-bottom: 1mm;
+                            }
+
+                            .business-contact {
+                                font-size: 8.5px;
+                                font-weight: 600;
+                                line-height: 1.25;
+                                margin-bottom: 1.5mm;
+                                padding: 0 1mm;
+                                text-align: center;
+                            }
+
+                            .business-contact div + div {
+                                margin-top: 0.5mm;
                             }
 
                             .separator {
@@ -3737,6 +3793,10 @@
                                 onerror="this.style.display='none'"
                             >
                             <div class="company">FEEDBACK PERSONALIZADOS</div>
+                            <div class="business-contact">
+                                <div>Teléfono: 2227950930</div>
+                                <div>Dirección: 17 ppte 115A Col. Santiago</div>
+                            </div>
 
                             <div class="separator"></div>
 
@@ -4363,7 +4423,7 @@
                 return d.getMonth() === mesActual && d.getFullYear() === anioActual;
             });
 
-            const totalVentas        = del_mes.filter(function(m){ return m.tipo==='venta'; }).reduce(function(a,m){ return a+m.monto; }, 0);
+            const totalVentas        = utils.getMonthlySalesTotal(now);
             const totalGastosInsumos = del_mes.filter(function(m){ return m.tipo==='gasto_insumo'; }).reduce(function(a,m){ return a+m.monto; }, 0);
             const totalGastosOp      = del_mes.filter(function(m){ return m.tipo==='gasto_operativo'; }).reduce(function(a,m){ return a+m.monto; }, 0);
             const utilidad = totalVentas - totalGastosInsumos - totalGastosOp;
