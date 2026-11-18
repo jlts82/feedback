@@ -36,7 +36,7 @@
         // ============================================================
         // V24.4: Datos de ticket + corrección Ventas del mes
         // ============================================================
-        const APP_VERSION = 'V24.5.1';
+        const APP_VERSION = 'V24.6';
 
         // Data Store - Estructura migrada y normalizada
         const store = {
@@ -1203,6 +1203,10 @@
             async updateOrder(order, previousStatus = null) {
                 if (order.status === 'entregado' && previousStatus !== 'entregado') {
                     await this.processDeliveredOrder(order);
+                    // V24.6: la RPC ya guarda el pedido y registra el ingreso de forma atomica.
+                    // Evitar un segundo guardado que pueda sobrescribir indicadores procesados.
+                    utils.saveStore();
+                    return;
                 }
                 if (this.enabled && window.supabaseClient) {
                     const { error } = await supabaseClient.rpc('save_order_safe', {
@@ -1218,8 +1222,7 @@
 
                 if (this.enabled && window.supabaseClient) {
                     // V16: flujo productivo en Supabase con RPC atómico.
-                    // La función inserta/actualiza el pedido, descuenta stock, registra movimiento de inventario
-                    // y crea el ingreso financiero en una sola operación protegida contra duplicados.
+                    // V24.6: la funcion guarda el pedido y registra el ingreso sin modificar inventario.
                     const { data, error } = await supabaseClient.rpc('process_order_delivery', {
                         p_order: this.orderToDb(order)
                     });
@@ -1233,44 +1236,14 @@
                     order.stockProcessed = true;
                     order.financeProcessed = true;
 
-                    // Refrescar productos afectados desde Supabase para reflejar stock real.
-                    const ids = (order.items || [])
-                        .map(item => item.productId)
-                        .filter(id => id && id !== 'custom');
-
-                    if (ids.length) {
-                        const { data: updatedProducts, error: productsError } = await supabaseClient
-                            .from('products')
-                            .select('*')
-                            .in('id', ids);
-                        if (!productsError && Array.isArray(updatedProducts)) {
-                            updatedProducts.forEach(row => {
-                                const idx = store.products.findIndex(p => p.id === row.id);
-                                if (idx >= 0) store.products[idx] = this.toProduct(row);
-                            });
-                        }
-                    }
-
-                    utils.notify(`Entrega procesada: stock descontado e ingreso registrado (${utils.formatCurrency(Number(order.total || 0))})`, 'success');
+                    utils.notify(`Entrega procesada e ingreso registrado (${utils.formatCurrency(Number(order.total || 0))}). Inventario sin cambios.`, 'success');
                     console.info('V16 entrega procesada:', result);
                     return;
                 }
 
                 // Fallback local solo para demo sin Supabase.
-                const stockMessages = [];
-                if (!order.stockProcessed) {
-                    for (const item of (order.items || [])) {
-                        if (!item.productId || item.productId === 'custom') continue;
-                        const product = store.products.find(p => p.id === item.productId);
-                        if (!product) continue;
-                        const qty = Number(item.quantity || 0);
-                        if (qty <= 0) continue;
-                        if (Number(product.stock || 0) < qty) throw new Error(`Stock insuficiente para ${product.name}. Disponible: ${product.stock}`);
-                        product.stock = Number(product.stock || 0) - qty;
-                        stockMessages.push(`${product.name}: -${qty} ${product.unit || ''}`);
-                    }
-                    order.stockProcessed = true;
-                }
+                // V24.6: sin descuentos de stock en modo local.
+                order.stockProcessed = true;
 
                 if (!order.financeProcessed) {
                     store.finanzas.push({
@@ -1286,7 +1259,6 @@
                     order.financeProcessed = true;
                 }
 
-                if (stockMessages.length) utils.notify(`Stock descontado: ${stockMessages.join(', ')}`, 'success');
                 if (order.financeProcessed) utils.notify('Ingreso registrado en Finanzas', 'success');
             }
         };
@@ -5089,21 +5061,15 @@
                     const qtyInput = itemRow.querySelector('.item-qty');
 
                     if (hasRecipe) {
-                        stockInfo.textContent = `Stock controlado por insumo relacionado | ${name}. Captura decimales si aplica; ej. 8.4 m`;
+                        stockInfo.textContent = `Inventario en pausa | ${name}. Captura decimales si aplica; ej. 8.4 m`;
                         stockInfo.classList.remove('hidden');
                         qtyInput.removeAttribute('max');
                         qtyInput.onchange = function() { calculateOrderTotal(); };
                     } else {
-                        stockInfo.textContent = `Stock disponible: ${stock} ${unit} | ${name}. Captura decimales si aplica; ej. 25 cm = 0.25 m`;
+                        stockInfo.textContent = `Venta sin control de inventario | ${name}. Captura decimales si aplica; ej. 25 cm = 0.25 m`;
                         stockInfo.classList.remove('hidden');
-                        qtyInput.max = stock;
-                        qtyInput.onchange = function() {
-                            if (parseFloat(this.value) > stock) {
-                                utils.notify(`Stock insuficiente. Máximo disponible: ${stock} ${unit}`, 'warning');
-                                this.value = stock;
-                            }
-                            calculateOrderTotal();
-                        };
+                        qtyInput.removeAttribute('max');
+                        qtyInput.onchange = function() { calculateOrderTotal(); };
                     }
                 } else {
                     stockInfo.textContent = 'Producto personalizado - sin control de inventario';
@@ -5207,10 +5173,6 @@
                     if (product) {
                         const productHasRecipe = Array.isArray(store.productSupplies) && store.productSupplies.some(ps => ps.product_id === productId);
 
-                        if (!productHasRecipe && product.stock < qty) {
-                            utils.notify(`Stock insuficiente para ${product.name}. Disponible: ${product.stock}`, 'error');
-                            throw new Error('Stock insuficiente');
-                        }
 
                         if (!productHasRecipe) {
                             stockUpdates.push({
@@ -5399,7 +5361,7 @@
                 
                 infoDiv.innerHTML = `
                     <i class="fas fa-info-circle mr-2"></i>
-                    <strong>${name}</strong> - Stock: ${stock} unidades - Precio sugerido: ${utils.formatCurrency(price)}
+                    <strong>${name}</strong> - Inventario en pausa - Precio sugerido: ${utils.formatCurrency(price)}
                 `;
                 infoDiv.classList.remove('hidden');
             } else if (option && option.value === 'custom') {
